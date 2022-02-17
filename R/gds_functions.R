@@ -11,7 +11,7 @@ get_allele_counts_gds <- function(gds,
                                   max_ext_freq = 0.25) {
 
   if (is.null(var_info)) {
-    var_info <- get_var_info()
+    var_info <- varinf_v1
   }
 
   # check_args
@@ -41,17 +41,29 @@ get_allele_counts_gds <- function(gds,
     }) %>%
     arrange(variant.id, allele.index) %>%
     filter(allele.index == 0 | allele == target) %>%
-    mutate(allele = if_else(allele.index == 0, 'ref', 'alt')) %>%
     select(-target) %>%
-    spread(key = allele, value = allele.index) %>%
+    group_by(variant_id) %>%
+    filter(n() > 1) %>%
+    ungroup() %>%
+      (function(x) {
+        inner_join(
+          filter(x, allele.index == 0) %>%
+            select(variant.id, num_allele, ref = allele) %>%
+            distinct(),
+          filter(x, allele.index > 0) %>%
+            select(variant.id, alt = allele, alt.index = allele.index, variant_id) %>%
+            chop(-variant.id),
+          by = 'variant.id')
+      }) %>%
     arrange(variant.id) %>%
-    mutate(ref.index = 1 + cumsum(num_allele) - num_allele,
-           alt.index = ref.index + alt) %>%
+    mutate(ref.index = 1L + cumsum(num_allele) - num_allele,
+           alt.index = map2(ref.index, alt.index, ~ .x + .y)) %>%
     mutate(., ext.index = purrr::pmap(., function(num_allele, ref.index, alt.index, ...) {
       `if`(num_allele <= 2,
            integer(0),
            setdiff(seq.int(from = ref.index + 1, to = ref.index + num_allele -1), alt.index))
-    }))
+    })) %>%
+    unnest(c(alt, alt.index, variant_id))
 
   # extract Allele Counts
   seqSetFilter(gds, variant.id = unique(var_index$variant.id), sample.id = sam_id, verbose = verbose)
@@ -59,15 +71,15 @@ get_allele_counts_gds <- function(gds,
 
   ref_ac <- AD[, var_index$ref.index, drop = FALSE]
   alt_ac <- AD[, var_index$alt.index, drop = FALSE]
-  ext_ac <-
-    vapply(seq_len(nrow(ref_ac)),
-           function(i) purrr::map_int(var_index$ext.index, ~ as.integer(sum(AD[i, .], na.rm = T))),
-           integer(ncol(ref_ac))) %>% t()
 
+  ext_ac <- matrix(NA_integer_, nrow = nrow(ref_ac),ncol = ncol(ref_ac))
+  for (i in seq_len(ncol(ref_ac))) {
+    ext_ac[, i] <- rowSums(AD[, var_index$ext.index[[i]], drop = F], na.rm = T)
+  }
 
   alt_ac[is.na(alt_ac)] <- 0L
   alt_ac[is.na(ref_ac)] <- NA_integer_
-  flt <- which(alt_ac + ref_ac <= ext_ac / max_ext_freq)
+  flt <- which( ext_ac / (alt_ac + ref_ac + ext_ac) > max_ext_freq)
   ref_ac[flt] <- NA_integer_
   alt_ac[flt] <- NA_integer_
 

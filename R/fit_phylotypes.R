@@ -32,11 +32,11 @@ fit_phylotypes <- function(allele_counts,
                            ) {
 
   if (is.null(phylo)) {
-    phylo <- get_phylo()
+    phylo <- phylo_v1
   }
 
   if (is.null(geno)) {
-    geno <- get_geno()
+    geno <- geno_v1
   }
 
   # check args
@@ -216,6 +216,9 @@ fit_sample <- function(phylo,
                                 exclude_descendant = exclude_descendant,
                                 exclude_distance = exclude_distance,
                                 exclude_inner = exclude_inner)
+
+    if (ncol(phy_gts[, -nodes_exclude, drop = FALSE]) < 1) { break }
+
     res_next <-
       score_phy_mix(data = data,
                     phy_gts_search = phy_gts[, -nodes_exclude, drop = FALSE],
@@ -247,7 +250,8 @@ fit_sample <- function(phylo,
                           error_rate = error_rate,
                           by_site = TRUE)
     p_val_wsrst <- suppressWarnings(
-      wilcox.test(lh0, lh1, paired = TRUE, alternative = 'less')$p.value
+      tryCatch(wilcox.test(lh0, lh1, paired = TRUE, alternative = 'less')$p.value,
+               error = function(e) { NA_real_ })
     )
 
     mix_fit <-
@@ -278,7 +282,7 @@ fit_sample <- function(phylo,
     }
 
     # reoptimise existing mixture components in light of new component
-    if (reoptimise && p_val_wsrst < max_p_val_wsrst) {
+    if (reoptimise && replace_na(p_val_wsrst < max_p_val_wsrst, FALSE)) {
       n_iter <- 0L
       n_alt <- 0L
       n_alt_last <- rep(-1L, i+1)
@@ -350,7 +354,7 @@ fit_sample <- function(phylo,
       mutate(phylotype = node_to_label(phylo, node),
              p_val_perm = map_dbl(search, ~ .$p_val_perm[1]))
 
-    if (min(mix_fit$mix_prop) < min_mix_prop || mix_fit$p_val_wsrst[1] > max_p_val_wsrst) { break }
+    if (min(mix_fit$mix_prop) < min_mix_prop || replace_na(mix_fit$p_val_wsrst[1] > max_p_val_wsrst, TRUE)) { break }
 
     model_current <-
       mix_fit %>%
