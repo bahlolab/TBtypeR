@@ -35,6 +35,47 @@ c_spike_in <- function(p0, p1) {
 }
 
 
+
+permute_genotypes <- function(phy_gts, n_perm) {
+  rate <- rowSums(phy_gts) / ncol(phy_gts)
+  # "permuted" genotypes background
+  vapply(seq_len(nrow(phy_gts)),
+         function (i) { rbinom(n_perm, 1, rate[i]) },
+         integer(n_perm)) %>% t()
+}
+
+#' @importFrom dplyr mutate select summarise starts_with row_number
+#' @importFrom tidyr chop pivot_longer
+#' @importFrom magrittr set_colnames
+permute_similar <- function(states, new_gts, n_perm) {
+
+  stopifnot(is.factor(states),
+            is_integerish(new_gts),
+            length(states) == length(new_gts),
+            is_scalar_integerish(n_perm))
+
+  state_smry <-
+    tibble(state=states, new_gt=new_gts) %>%
+    mutate(site = row_number()) %>%
+    group_by(state) %>%
+    summarise(N = sum(new_gt),
+              n_site = length(site),
+              site = list(site))
+
+  perm <- matrix(0L, nrow = length(states), ncol = n_perm)
+  ones <- state_smry %>% filter(N == n_site) %>% pull(site) %>% unlist()
+  if (!is.null(ones)) {
+    perm[ones, ] <- 1L
+  }
+  for (i in with(state_smry, which(N > 1 & N < n_site))) {
+    for (j in seq_len(n_perm)) {
+      perm[sample(state_smry$site[[i]], state_smry$N[i]),j] <- 1L
+    }
+  }
+  return(perm)
+}
+
+
 #' @importFrom rlang is_scalar_double is_scalar_integer
 binom_likelihood <- function(x, size, p, err, by_site = FALSE) {
   # check args
@@ -280,19 +321,29 @@ exclusions <- function(nodes,
   return(exclude)
 }
 
-#' @importFrom hashmap hashmap
 hash_set <- function(.keys = character()) {
-  hashmap::hashmap(as.character(.keys), rep(TRUE, length(.keys)))
+  # hashmap::hashmap(as.character(.keys), rep(TRUE, length(.keys)))
+  env <- new.env(hash = TRUE)
+  for (k in .keys) {
+    env[[k]] <- TRUE
+  }
+  env
 }
 
-hs_add <- function(hs, keys) {
-  hs[[keys]] <- rep(TRUE, length(keys))
-  hs
+hs_add <- function(env, keys) {
+  # hs[[keys]] <- rep(TRUE, length(keys))
+  # hs
+  for (k in keys) {
+    env[[k]] <- TRUE
+  }
+  env
 }
 
 #' @importFrom tidyr replace_na
-hs_contains <- function(hs, keys) {
-  stopifnot(inherits(hs, 'Rcpp_Hashmap'))
-  replace_na(hs[[keys]], FALSE)
+#' @importFrom purrr map_lgl
+hs_contains <- function(env, keys) {
+  # stopifnot(inherits(hs, 'Rcpp_Hashmap'))
+  # replace_na(hs[[keys]], FALSE)
+  keys %in% names(env)
 }
 
