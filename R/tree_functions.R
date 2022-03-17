@@ -352,11 +352,13 @@ get_tip_list <- function(phylo, node, as_label=TRUE) {
 }
 
 label_to_node <- function(phylo, labels) {
-  as_tibble(phylo) %>% with(node[match(labels, label)])
+  tidytree::as_tibble(phylo) %>%
+    with(node[match(labels, label)])
 }
 
 node_to_label <- function(phylo, nodes) {
-  as_tibble(phylo) %>% with(label[match(nodes, node)])
+  tidytree::as_tibble(phylo) %>%
+    with(label[match(nodes, node)])
 }
 
 get_child_list <- function(phylo, node) {
@@ -466,7 +468,7 @@ get_anc_list_by_lab <- function(phylo, labels) {
 }
 
 ggtree_node_highlight <- function(phylo, labels) {
-  require(ggtree)
+  # require(ggtree)
 
   as_tibble(phylo) %>%
     mutate(selected = label %in% labels,
