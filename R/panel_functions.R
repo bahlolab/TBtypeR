@@ -9,7 +9,7 @@ panel_with_vid <- function(panel) {
     bind_cols(panel)
 }
 
-#' @importFrom tidyr pivot_wider
+#' @importFrom tidyr pivot_wider unnest
 panel_to_geno <- function(panel) {
 
   phylo <- panel_to_phylo(panel)
@@ -43,6 +43,16 @@ panel_to_geno <- function(panel) {
         abs(1L - x[, panel_vid$genotype == 0L])
       x
     })
+
+  geno <- rbind(
+    geno,
+    tidytree::as_tibble(phylo) %>%
+      filter(parent == rootnode(phylo), node != parent) %>%
+      with(colMeans(geno[label, , drop =F])) %>%
+      (function(x) if_else(x > 0.5, 1L, 0L)) %>%
+      matrix(nrow = 1, dimnames = list('root', NULL)))
+
+  geno <- geno[phylo_labels(phylo), ]
 
   return(geno)
 }

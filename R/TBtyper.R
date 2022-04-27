@@ -6,7 +6,7 @@
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
 tbtype <- function(gds,
-                   panel = tbt_panel,
+                   panel = TBtyper::tbt_panel,
                    max_phylotypes = 5L,
                    min_mix_prop = 0.001,
                    min_depth = 50L,
@@ -49,7 +49,7 @@ tbtype <- function(gds,
   allele_counts <- get_allele_counts(gds, panel = panel, verbose = verbose)
 
   # subset genotypes to those in input allele counts
-  geno_sub <- geno[, colnames(allele_counts)]
+  geno_sub <- geno[, colnames(allele_counts), drop =F]
   message('Note: using ', ncol(geno_sub), ' of ', ncol(geno), ' genotypes')
 
   # subset phylotypes to those that can be distinguished over input genotypes
@@ -57,14 +57,16 @@ tbtype <- function(gds,
   message('Note: using ', Nnode2(phylo_sub), ' of ', Nnode2(phylo), ' phylotypes')
 
   # transpose genotypes
-  t_geno <- t(geno_sub)[, node_to_label(phylo_sub, seq_len(Nnode2(phylo_sub)))]
+  t_geno <- t(geno_sub)[, phylo_labels(phylo_sub), drop=F]
   rate <- rowSums(t_geno) / ncol(t_geno)
 
   # "permuted" genotypes background
   perm_geno <-
     vapply(seq_len(nrow(t_geno)),
            function (i) { rbinom(n_perm, 1, rate[i]) },
-           integer(n_perm)) %>% t()
+           integer(n_perm)) %>%
+    t() %>%
+    set_rownames(rownames(t_geno))
 
   # readr::write_tsv(tibble(event = character(), index = integer()), '.tbt_log.tsv')
   results <-
@@ -136,10 +138,8 @@ tbtype_sample <- function(phylo,
 
   data <-
     tibble(variant = rownames(sm_allele_counts),
-           bac = sm_allele_counts[,'Alt'],
-           dp = rowSums(sm_allele_counts),
-           gts = gts,
-           pgts = pgts) %>%
+           bac = sm_allele_counts[,'alt'],
+           dp = rowSums(sm_allele_counts)) %>%
     filter(dp >= min_depth) %>%
     # round down samples with depth greater than max_depth
     mutate(dp_gt_mx = dp > max_depth,
@@ -151,10 +151,8 @@ tbtype_sample <- function(phylo,
   # arbitrary threshold on min sites
   if (nrow(data) < min_sites) {  return(tibble(note = "insufficient data"))  }
 
-  phy_gts <- data$gts %>% set_colnames(node_to_label(phylo, seq_len(Nnode2(phylo)))) %>%
-    set_rownames(data$variant)
-  perm_gts <- data$pgts
-  data %<>% select(-gts, -pgts)
+  phy_gts <- gts[data$variant,]
+  perm_gts <- pgts[data$variant,]
 
   # TODO - move this up 1 level to aviod recalculating
   node_dist <- phylo_geno_dist(phylo, t(phy_gts))

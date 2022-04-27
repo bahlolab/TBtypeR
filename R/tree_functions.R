@@ -6,6 +6,10 @@ tips <- function(phylo) {
   seq_len(Nnode2(phylo)) %>% { .[isTip(phylo, .)]}
 }
 
+phylo_labels <- function(phylo) {
+  node_to_label(phylo, seq_len(Nnode2(phylo)))
+}
+
 #' @importFrom treeio isTip Nnode2
 inner_nodes <- function(phylo) {
   seq_len(Nnode2(phylo)) %>% { .[!isTip(phylo, .)] }
@@ -92,15 +96,15 @@ condense_phylo <- function(phylo, nodes_rm) {
 #' @importFrom dplyr mutate rowwise ungroup n slice pull group_by select left_join distinct arrange
 #' @importFrom tidyr gather
 #' @importFrom magrittr "%>%"
-collapse_phylotypes <- function(phylo, geno_sub, min_dist = 1L, include_dist = TRUE) {
+collapse_phylotypes <- function(phylo, geno, min_dist = 1L, include_dist = TRUE) {
 
   stopifnot(
-    is_integer(geno_sub) && is.matrix(geno_sub) && max(geno_sub, na.rm = T) == 1L && min(geno_sub, na.rm = T) == 0L,
+    is_integer(geno) && is.matrix(geno) && max(geno, na.rm = T) == 1L && min(geno, na.rm = T) == 0L,
     is_phylo(phylo),
-    setequal(rownames(geno_sub), c(phylo$tip.label, phylo$node.label)),
+    setequal(rownames(geno), c(phylo$tip.label, phylo$node.label)),
     is_scalar_integerish(min_dist) && min_dist > 0L)
 
-  phylo_dist <- phylo_geno_dist(phylo, geno_sub, as_phylo = TRUE)
+  phylo_dist <- phylo_geno_dist(phylo, geno, min_dist = min_dist, as_phylo = TRUE)
 
   node_dist <- ape::dist.nodes(phylo_dist)
 
@@ -128,7 +132,7 @@ collapse_phylotypes <- function(phylo, geno_sub, min_dist = 1L, include_dist = T
 
 #' @importFrom dplyr mutate rowwise ungroup n slice pull group_by select left_join distinct arrange
 #' @importFrom magrittr "%>%"
-phylo_geno_dist <- function(phylo, geno, as_phylo = FALSE) {
+phylo_geno_dist <- function(phylo, geno, min_dist = 1L, as_phylo = FALSE) {
   # check args
   stopifnot(
     is_integer(geno) && is.matrix(geno) && max(geno, na.rm = T) == 1L && min(geno, na.rm = T) == 0L,
@@ -140,7 +144,8 @@ phylo_geno_dist <- function(phylo, geno, as_phylo = FALSE) {
     tidytree::as_tibble(phylo) %>%
     mutate(parent_label = node_to_label(phylo, parent)) %>%
     rowwise() %>%
-    mutate(branch.length = sum(geno[label, ] != geno[parent_label, ], na.rm = TRUE)) %>%
+    mutate(branch.length = `if`(parent_label == 'root', 1L,
+                                sum(geno[label, ] != geno[parent_label, ], na.rm = TRUE))) %>%
     ungroup() %>%
     mutate(branch.length = replace(branch.length, node == parent, NA)) %>%
     as_tbl_tree() %>%
