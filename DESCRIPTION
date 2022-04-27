@@ -32,7 +32,8 @@ Imports:
     quadprog,
     RhpcBLASctl,
     pracma,
-    assertthat
+    assertthat,
+    xptr
 RoxygenNote: 7.1.2
 Suggests: 
     testthat (>= 2.1.0)

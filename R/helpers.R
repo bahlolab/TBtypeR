@@ -14,11 +14,6 @@ is_phylo <- function(x) {
   inherits(x, "phylo")
 }
 
-is_gds <- function(x) {
-
-  inherits(x, "SeqVarGDSClass")
-}
-
 #' @importFrom rlang is_double
 force_to_interval <- function(x, min_val=0, max_val=1) {
   stopifnot(is_double(x))

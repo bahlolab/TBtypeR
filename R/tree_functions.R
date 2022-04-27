@@ -435,6 +435,7 @@ dist_to_tip <- function(phylo, node) {
   map_int(node, m_dist_to_tip_rec)
 }
 
+
 get_nodes <- function(phylo) {
   phylo$edge[,1] %>% sort() %>% unique()
 }
@@ -446,38 +447,42 @@ get_tips <- function(phylo) {
 get_root <- function(phylo) {
   setdiff(unique(phylo$edge[,1]), phylo$edge[,2])
 }
+
 # recursive function to get ancestors
-get_anc_list <- function(phylo, node) {
+get_anc_list <- function(phylo, node, as_label = FALSE) {
 
   parent <- phylo$edge[, 1]
   child <- phylo$edge[, 2]
 
-  get_anc_rec <- function(nd) {
-    i <- match(nd, child)
-    if (is.na(i)) { return (integer(0)) }
-    return(c(get_anc_rec(parent[i]), i))
-  }
-  m_get_anc_rec <- memoise(get_anc_rec)
- map(node, m_get_anc_rec)
-}
-
-get_anc_list_by_lab <- function(phylo, labels) {
-  label_to_node(phylo, labels) %>%
-    get_anc_list(phylo, .) %>%
-    map(~ node_to_label(phylo, .))
-}
-
-ggtree_node_highlight <- function(phylo, labels) {
-  # require(ggtree)
-
-  as_tibble(phylo) %>%
-    mutate(selected = label %in% labels,
-           label = if_else(selected, label, NA_character_)) %>%
-    as_tbl_tree() %>%
-    treeio::as.treedata() %>% {
-      ggtree(.) +
-        geom_nodepoint(aes(col = label, subset = selected)) +
-        geom_tippoint(aes(col = label, subset = selected)) +
-        theme(legend.position = 'right')
+  if (as_label) {
+    labels <- c(phylo$tip.label, phylo$node.label)
+    get_anc_rec <- function(nd) {
+      p <- parent[match(nd, child)]
+      if (is.na(p)) { return (character(0)) }
+      return(c(get_anc_rec(p), labels[p]))
     }
+  } else {
+    get_anc_rec <- function(nd) {
+      p <- parent[match(nd, child)]
+      if (is.na(p)) { return (integer(0)) }
+      return(c(get_anc_rec(p), p))
+    }
+  }
+  m_get_anc_rec <- memoise::memoise(get_anc_rec)
+  map(node, m_get_anc_rec)
 }
+
+# ggtree_node_highlight <- function(phylo, labels) {
+#   # require(ggtree)
+#
+#   as_tibble(phylo) %>%
+#     mutate(selected = label %in% labels,
+#            label = if_else(selected, label, NA_character_)) %>%
+#     as_tbl_tree() %>%
+#     treeio::as.treedata() %>% {
+#       ggtree(.) +
+#         geom_nodepoint(aes(col = label, subset = selected)) +
+#         geom_tippoint(aes(col = label, subset = selected)) +
+#         theme(legend.position = 'right')
+#     }
+# }
