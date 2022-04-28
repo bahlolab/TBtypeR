@@ -92,18 +92,19 @@ panel_to_phylo <- function(panel) {
 }
 
 
-check_panel <- function(panel) {
+check_panel <- function(panel, phylotype = TRUE) {
 
-  dna_bases <- c('C', 'A', 'T', 'G')
 
   assertthat::assert_that(
     is.data.frame(panel),
     all(c('chrom', 'pos', 'ref', 'alt') %in% colnames(panel)),
-    all(c('genotype', 'phylotype', 'parent_phylotype') %in% colnames(panel)),
     rlang::is_integerish(panel$pos),
-    all(panel$genotype %in% c(0L, 1L)),
-    all(panel$ref %in% dna_bases),
-    all(panel$alt %in% dna_bases))
+    all(nchar(panel$ref) > 0),
+    all(nchar(panel$alt) > 0),
+    all(stringr::str_detect(panel$ref, '^[ACTG]+$')),
+    all(stringr::str_detect(panel$alt, '^[ACTG]+$')),
+    !phylotype || all(c('genotype', 'phylotype', 'parent_phylotype') %in% colnames(panel)),
+    !phylotype || all(panel$genotype %in% c(0L, 1L)))
 
 
   invisible(TRUE)
@@ -141,4 +142,49 @@ check_phylo <-  function(phy) {
     # tips should not appear in the 1st column of 'edge'
     !any(phy$edge[, 1] <= n & phy$edge[, 1] > 0)
   )
+}
+
+#' @export
+#' @importFrom dplyr bind_rows select
+#' @importFrom tidyr chop
+#' @importFrom purrr map2_chr
+#' @importFrom stringr str_c
+create_bcftools_targets <- function(prefix,
+                                    panel = bind_rows(
+                                      TBtyper::tbt_panel,
+                                      TBtyper::who_dr_panel),
+                                    create_regions = TRUE,
+                                    pad_regions = 5) {
+
+  assert_that(check_panel(panel, phylotype = FALSE))
+
+  targets_fn <- str_c(prefix, '.targets.tsv')
+  snps <- c('A', 'C', 'T', 'G')
+
+  panel %>%
+    select(chrom, pos, ref, alt) %>%
+    chop(alt) %>%
+    mutate(vars = map2_chr(ref, alt, function(ref, alt) {
+      `if`(nchar(ref) == 1,
+           c(ref, sort(setdiff(union(alt, snps), ref))),
+           c(ref, sort(alt))) %>%
+        str_c(collapse = ',')
+    })) %>%
+    select(chrom, pos, vars) %>%
+    readr::write_tsv(targets_fn, col_names = FALSE, progress = F)
+
+  targets_bgz <- Rsamtools::bgzip(targets_fn, overwrite = TRUE)
+  file.remove(targets_fn)
+  message('created targets file: ', targets_bgz)
+
+  if (create_regions) {
+    regions_fn <- str_c(prefix, '.regions.bed')
+    panel %>%
+      with(GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref)))) %>%
+      (function(x) GenomicRanges::reduce(x + pad_regions)) %>%
+      rtracklayer::export.bed(regions_fn)
+    regions_bgz <- Rsamtools::bgzip(regions_fn, overwrite = TRUE)
+    file.remove(regions_fn)
+    message('created regions file: ', regions_bgz)
+  }
 }
