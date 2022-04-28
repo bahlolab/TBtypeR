@@ -15,3 +15,21 @@
 #' @source Thawornwattana et al. 2021: \url{https://doi.org/10.1099/mgen.0.000697}
 #' @source Coscolla et al. 2021: \url{https://doi.org/10.1099/mgen.0.000477}
 "tbt_panel"
+
+
+#' Panel of TB drug resistance polymorphisms derived from the WHO Mutation Catalogue
+#'
+#' @format A data frame with 1,140 rows and 6 columns:
+#' \describe{
+#'   \item{chrom}{H37Rv chromosome}
+#'   \item{pos}{H37Rv genomic position}
+#'   \item{ref}{H37Rv reference base}
+#'   \item{alt}{H37Rv alternate base}
+#'   \item{drugs}{Three letter code for antibiotics to which polymorphism is associated with resistance, separated by ';'}
+#'   \item{referece}{reference}
+#' }
+#' @source Catalogue of mutations in Mycobacterium tuberculosis complex and their association with drug resistance,
+#' WHO TEAM Global Tuberculosis Programme, 2021 \url{https://www.who.int/publications/i/item/9789240028173}
+#'
+#' Licence: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 IGO (CC BY-NC-SA 3.0 IGO) \url{https://creativecommons.org/licenses/by-nc-sa/3.0/igo/deed.en}
+"who_dr_panel"
