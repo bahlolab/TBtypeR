@@ -34,7 +34,8 @@ Imports:
     pracma,
     assertthat,
     xptr,
-    Rsamtools
+    Rsamtools,
+    rtracklayer
 RoxygenNote: 7.1.2
 Suggests: 
     testthat (>= 2.1.0)

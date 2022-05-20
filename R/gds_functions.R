@@ -7,6 +7,7 @@
 #' @importFrom tidyr pivot_wider unchop chop separate_rows
 #' @importFrom magrittr "%>%"
 get_allele_counts <- function(gds, panel,
+                              as_tibble = FALSE,
                               verbose = FALSE,
                               max_ext_freq = 0.25) {
 
@@ -102,7 +103,7 @@ get_allele_counts <- function(gds, panel,
   seqSetFilter(gds, variant.id = var_id, verbose=verbose)
   ref_ac <- AD[, var_index$ref, drop = F]
   alt_ac <-  AD[, var_index$alt, drop = F]
-  alt_ac[is.na(alt_ac)] <- 0
+  alt_ac[is.na(alt_ac)] <- 0L
   alt_ac[is.na(ref_ac)] <- NA_integer_
 
   ext_ac <- matrix(0L, nrow(ref_ac), ncol(ref_ac))
@@ -117,12 +118,23 @@ get_allele_counts <- function(gds, panel,
   ref_ac[flt] <- NA_integer_
   alt_ac[flt] <- NA_integer_
 
-  allele_counts <-
-    array(c(ref_ac, alt_ac),
-          dim = c(length(sam_id), nrow(var_index), 2),
-          dimnames = list(sample = sam_id,
-                          variant = var_index$vid,
-                          allele = c('ref', 'alt')))
+  if (as_tibble) {
+    allele_counts <-
+      as_tibble(data.frame(sample_id = sam_id,
+                           vid = rep(var_index$vid, each = length(sam_id)),
+                           ref_ac = c(ref_ac),
+                           alt_ac = c(alt_ac),
+                           depth = c(ref_ac + alt_ac + ext_ac))) %>%
+      arrange_all()
+
+  } else {
+    allele_counts <-
+      array(c(ref_ac, alt_ac),
+            dim = c(length(sam_id), nrow(var_index), 2),
+            dimnames = list(sample = sam_id,
+                            variant = var_index$vid,
+                            allele = c('ref', 'alt')))
+  }
 
   return(allele_counts)
 }

@@ -1,6 +1,6 @@
 #' TBtyper SNP phylotype panel.
 #'
-#' @format A data frame with 9,272 rows and 8 columns:
+#' @format A data frame with 9,264 rows and 8 columns:
 #' \describe{
 #'   \item{chrom}{H37Rv chromosome}
 #'   \item{pos}{H37Rv genomic position}

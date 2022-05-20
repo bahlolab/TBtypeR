@@ -149,42 +149,53 @@ check_phylo <-  function(phy) {
 #' @importFrom tidyr chop
 #' @importFrom purrr map2_chr
 #' @importFrom stringr str_c
-create_bcftools_targets <- function(prefix,
+create_bcftools_targets <- function(dir,
                                     panel = bind_rows(
                                       TBtyper::tbt_panel,
                                       TBtyper::who_dr_panel),
-                                    create_regions = TRUE,
-                                    pad_regions = 5) {
+                                    indel_pad = 100) {
 
-  assert_that(check_panel(panel, phylotype = FALSE))
+  assert_that(check_panel(panel, phylotype = FALSE),
+              is_scalar_integerish(indel_pad),
+              indel_pad >= 0)
 
-  targets_fn <- str_c(prefix, '.targets.tsv')
-  snps <- c('A', 'C', 'T', 'G')
+  if (!dir.exists(dir)) { assert_that(dir.create(dir, recursive = T)) }
 
-  panel %>%
-    select(chrom, pos, ref, alt) %>%
-    chop(alt) %>%
-    mutate(vars = map2_chr(ref, alt, function(ref, alt) {
-      `if`(nchar(ref) == 1,
-           c(ref, sort(setdiff(union(alt, snps), ref))),
-           c(ref, sort(alt))) %>%
-        str_c(collapse = ',')
-    })) %>%
-    select(chrom, pos, vars) %>%
-    readr::write_tsv(targets_fn, col_names = FALSE, progress = F)
+  snp_targets_fn <- file.path(dir, 'snp_targets.tsv.gz')
+  indel_regions_fn <- file.path(dir, 'indel_regions.bed.gz')
 
-  targets_bgz <- Rsamtools::bgzip(targets_fn, overwrite = TRUE)
-  file.remove(targets_fn)
-  message('created targets file: ', targets_bgz)
-
-  if (create_regions) {
-    regions_fn <- str_c(prefix, '.regions.bed')
+  snps <- c('A', 'C', 'G', 'T')
+  # create snp_targets
+  snp_targets <-
     panel %>%
-      with(GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref)))) %>%
-      (function(x) GenomicRanges::reduce(x + pad_regions)) %>%
-      rtracklayer::export.bed(regions_fn)
-    regions_bgz <- Rsamtools::bgzip(regions_fn, overwrite = TRUE)
-    file.remove(regions_fn)
-    message('created regions file: ', regions_bgz)
+    filter(nchar(ref) == 1, nchar(alt) == 1) %>%
+    select(chrom, pos, ref) %>%
+    distinct() %>%
+    mutate(vars = map_chr(ref, ~ str_c(union(., snps), collapse = ','))) %>%
+    select(chrom, pos, vars) %>%
+    arrange_all()
+
+  if (nrow(snp_targets)) {
+    readr::write_tsv(snp_targets, snp_targets_fn, col_names = FALSE, progress = F)
+    message('Created SNP targets file: ', snp_targets_fn)
+  } else {
+    message('No SNP targets')
   }
+
+
+  # create indel regions
+  indel_regions <-
+    panel %>%
+    filter(!(nchar(ref) == 1 & nchar(alt) == 1)) %>%
+    with(GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref)))) %>%
+    (function(x) GenomicRanges::reduce(x + indel_pad)) %>%
+    sort()
+
+  if (length(indel_regions)) {
+    rtracklayer::export.bed(indel_regions, indel_regions_fn)
+    message('Created indel regions file: ', indel_regions_fn)
+  } else {
+    message('No indel regions')
+  }
+
 }
