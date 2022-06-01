@@ -258,3 +258,14 @@ hs_contains <- function(env, keys) {
   keys %in% names(env)
 }
 
+combinations <- function(x, zero_len_as_na = TRUE) {
+  n <- length(x)
+  map(seq_len(2^n)-1, function(y) {
+    v <- x[head(as.logical(intToBits(y)),n)]
+    if (zero_len_as_na && length(v) == 0) {
+      as(NA, class(x[1]))
+    } else {
+      v
+    }
+  })
+}

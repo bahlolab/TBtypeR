@@ -125,6 +125,7 @@ get_allele_counts <- function(gds, panel,
                            ref_ac = c(ref_ac),
                            alt_ac = c(alt_ac),
                            depth = c(ref_ac + alt_ac + ext_ac))) %>%
+      mutate(baf = alt_ac / depth) %>%
       arrange_all()
 
   } else {

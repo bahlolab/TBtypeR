@@ -15,7 +15,6 @@ tbtype <- function(gds,
                    max_p_val_wsrst = 0.01,
                    spike_in_p = 0.01,
                    reoptimise = TRUE,
-                   reoptimise_max_iter = 5L,
                    min_sites = 1000L,
                    n_perm = 1000L,
                    exclude_parent = TRUE,
@@ -24,8 +23,6 @@ tbtype <- function(gds,
                    exclude_descendant = FALSE,
                    exclude_distance = 10L,
                    exclude_inner = FALSE,
-                   fuzzy_phylotypes = TRUE,
-                   fuzzy_max_dist = 100L,
                    error_rate = 0.005,
                    verbose = FALSE) {
 
@@ -46,8 +43,9 @@ tbtype <- function(gds,
 
   phylo <- panel_to_phylo(panel)
   geno <- panel_to_geno(panel)
-  allele_counts <- get_allele_counts(gds, panel = panel, verbose = verbose)
-
+  allele_counts <- get_allele_counts(gds,
+                                     panel = panel,
+                                     verbose = verbose)
   # subset genotypes to those in input allele counts
   geno_sub <- geno[, colnames(allele_counts), drop =F]
   message('Note: using ', ncol(geno_sub), ' of ', ncol(geno), ' genotypes')
@@ -86,7 +84,6 @@ tbtype <- function(gds,
         max_p_val_wsrst = max_p_val_wsrst,
         spike_in_p = spike_in_p,
         reoptimise = reoptimise,
-        reoptimise_max_iter = reoptimise_max_iter,
         min_sites = min_sites,
         n_perm = n_perm,
         exclude_parent = exclude_parent,
@@ -95,8 +92,6 @@ tbtype <- function(gds,
         exclude_descendant = exclude_descendant,
         exclude_distance = exclude_distance,
         exclude_inner = exclude_inner,
-        fuzzy_phylotypes = fuzzy_phylotypes,
-        fuzzy_max_dist = fuzzy_max_dist,
         error_rate = error_rate) %>%
         mutate(sample_id = rownames(allele_counts)[i])
       # %T>% { readr::write_tsv(tibble(event = 'end', index = i), '.tbt_log.tsv', append = T) }
@@ -123,7 +118,6 @@ tbtype_sample <- function(phylo,
                           max_p_val_wsrst,
                           spike_in_p,
                           reoptimise,
-                          reoptimise_max_iter,
                           min_sites,
                           n_perm,
                           exclude_parent,
@@ -132,8 +126,6 @@ tbtype_sample <- function(phylo,
                           exclude_descendant,
                           exclude_distance,
                           exclude_inner,
-                          fuzzy_phylotypes,
-                          fuzzy_max_dist,
                           error_rate) {
 
   data <-
@@ -157,9 +149,17 @@ tbtype_sample <- function(phylo,
   # TODO - move this up 1 level to aviod recalculating
   node_dist <- phylo_geno_dist(phylo, t(phy_gts))
 
+  nodes_exclude <- exclusions(integer(), phylo, node_dist,
+                              exclude_parent = exclude_parent,
+                              exclude_child = exclude_child,
+                              exclude_ancestor = exclude_ancestor,
+                              exclude_descendant = exclude_descendant,
+                              exclude_distance = exclude_distance,
+                              exclude_inner = exclude_inner)
+
   # initial search over all phylotypes
   res_1 <-
-    phy_lh(data, phy_gts = phy_gts[, -rootnode(phylo)], perm_gts = perm_gts, error_rate = error_rate) %>%
+    phy_lh(data, phy_gts = phy_gts[, -nodes_exclude], perm_gts = perm_gts, error_rate = error_rate) %>%
     mutate(node = label_to_node(phylo, phylotype))
 
   res_1_top <-
@@ -176,18 +176,9 @@ tbtype_sample <- function(phylo,
       res_1_top %>%
       mutate(likelihood = optim_error$likelihood, error_rate = optim_error$error_rate,
              mix_n = 1, mix_index = 1, mix_prop = 1,  #search = list(res_1),
-             p_val_wsrst = -1, fuzzy_sites = list(integer()), abs_diff = Inf) %>%
-      select(mix_n, mix_index, mix_prop, node, phylotype, mix_prop, likelihood,
-             error_rate, p_val_perm, p_val_wsrst, abs_diff, fuzzy_sites)
-
-    if (fuzzy_phylotypes) {
-      # find sites that differ in neighbouring nodes and may be incorrect in the model
-      fuzz <- optim_fuzzy(data = data, node_optim = sample_fit$node[1], index_optim = 1, phy_gts = phy_gts,
-                          mix_gts = phy_gts[, sample_fit$node[1], drop = FALSE], mix_prop = 1, phylo = phylo,
-                          node_dist = node_dist, max_dist = fuzzy_max_dist, error_rate = error_rate)
-      sample_fit[1,] %<>% mutate(likelihood = likelihood + fuzz$lh_delta,
-                                 fuzzy_sites = list(fuzz$sites))
-    }
+             p_val_wsrst = -1, abs_diff = Inf) %>%
+      select(mix_n, mix_index, node, phylotype, mix_prop, likelihood,
+             error_rate, p_val_perm, p_val_wsrst, abs_diff)
 
   } else {
     return(tibble(note = "no matches passing filters"))
@@ -199,8 +190,7 @@ tbtype_sample <- function(phylo,
     mix_prop_last <- filter(sample_fit, mix_n == i) %>% pull(mix_prop)
     mix_gts_last <-
       filter(sample_fit, mix_n == i) %>%
-      pmap(function(node, fuzzy_sites, ...) flip_at(phy_gts[, node, drop = FALSE], fuzzy_sites)) %>%
-      do.call('cbind', .)
+      with(phy_gts[, node, drop = FALSE])
     model_last <-
       colSums(t(mix_gts_last) * mix_prop_last) %>%
       force_to_interval()
@@ -252,8 +242,8 @@ tbtype_sample <- function(phylo,
     mix_fit <-
       sample_fit %>%
       filter(mix_n == i) %>%
-      select(mix_index, node, fuzzy_sites) %>%
-      bind_rows(tibble(mix_index = i + 1, node = node_next, fuzzy_sites = list(integer()))) %>%
+      select(mix_index, node) %>%
+      bind_rows(tibble(mix_index = i + 1, node = node_next)) %>%
       mutate(mix_n = i + 1,
              mix_prop = optim_prop$prop,
              phylotype = node_to_label(phylo, node),
@@ -263,24 +253,78 @@ tbtype_sample <- function(phylo,
              p_val_wsrst = res_next_top$p_val_wsrst,
              abs_diff = sum(abs(model_last - model_curr))) %>%
       select(mix_n, mix_index, mix_prop, node, phylotype, likelihood, error_rate,
-             p_val_perm, p_val_wsrst, abs_diff, fuzzy_sites)
+             p_val_perm, p_val_wsrst, abs_diff)
 
-    if (fuzzy_phylotypes) {
-      mix_gts <-
-        mix_fit %>%
-        pmap(function(node, fuzzy_sites, ...) flip_at(phy_gts[, node, drop = FALSE], fuzzy_sites)) %>%
-        do.call('cbind', .)
-      fuzz <- optim_fuzzy(data = data, node_optim = node_next, index_optim = i + 1, phy_gts = phy_gts, mix_gts = mix_gts,
-                          mix_prop = mix_fit$mix_prop, phylo = phylo, node_dist = node_dist, max_dist = fuzzy_max_dist,
-                          error_rate = error_rate)
-      mix_fit$likelihood %<>% { . + fuzz$lh_delta }
-      mix_fit$fuzzy_sites[[i + 1]] <- fuzz$sites
+    if (reoptimise) {
+
+      lh_curr <- optim_error$likelihood
+      changed <- FALSE
+
+      for (j in seq_len(ncol(mix_gts))) {
+        nodes_curr <- mix_fit$node
+        mix_gts <- phy_gts[, nodes_curr, drop = FALSE]
+
+        nodes_exclude <- exclusions(nodes_curr[-j], phylo, node_dist,
+                                    exclude_parent = exclude_parent,
+                                    exclude_child = exclude_child,
+                                    exclude_ancestor = exclude_ancestor,
+                                    exclude_descendant = exclude_descendant,
+                                    exclude_distance = exclude_distance,
+                                    exclude_inner = exclude_inner)
+
+        phy_reopt <-
+          phy_mix_lh(data = data,
+                     phy_gts_last = mix_gts[, -j, drop = F],
+                     phy_gts_search = phy_gts[, -nodes_exclude, drop = FALSE],
+                     mix_prop_last = optim_prop$prop[-j] %>% { . / sum(.)},
+                     mix_prop_search = optim_prop$prop[j],
+                     error_rate = optim_error$error_rate,
+                     n_perm = n_perm,
+                     max_p_val_perm = max_p_val_perm,
+                     max_p_val_wsrst = max_p_val_wsrst) %>%
+          mutate(node = label_to_node(phylo, phylotype)) %>%
+          filter(p_val_perm < max_p_val_perm,
+                 p_val_wsrst < max_p_val_wsrst,
+                 likelihood > lh_curr)
+
+        if (nrow(phy_reopt)) {
+          phy_reopt <- slice(phy_reopt, 1)
+          changed <- TRUE
+          lh_curr <- phy_reopt$likelihood
+          mix_fit$p_val_perm <- min(mix_fit$p_val_perm[1], phy_reopt$p_val_perm)
+          mix_fit$p_val_wsrst <- min(mix_fit$p_val_wsrst[1], phy_reopt$p_val_wsrst)
+          mix_fit$node[j] <- phy_reopt$node
+          mix_fit$phylotype[j] <- phy_reopt$phylotype
+        }
+      }
+
+      if (changed) {
+        mix_gts <- phy_gts[, nodes_curr, drop = FALSE]
+        optim_prop <- optim_phy_mix(data, mix_gts = mix_gts,
+                                    error_rate = optim_error$error_rate,
+                                    fit = mix_fit$mix_prop)
+
+        model_curr <-
+          colSums(t(mix_gts) * optim_prop$prop) %>%
+          force_to_interval()
+
+        optim_error <- optimise_error_rate(data, model_curr)
+
+        mix_fit$mix_prop <- optim_prop$prop
+        mix_fit$error_rate <- optim_error$error_rate
+        mix_fit$likelihood <- optim_error$likelihood
+        mix_fit$abs_diff = sum(abs(model_last - model_curr))
+
+      }
     }
-
     sample_fit <- bind_rows(sample_fit, mix_fit)
   }
 
-  return(chop(sample_fit, c(mix_prop, mix_index, node, phylotype, fuzzy_sites)))
+  sample_fit %>%
+    rename(n_phy = mix_n,
+           mix_node = node,
+           mix_phylotype = phylotype) %>%
+    chop(starts_with('mix_'))
 }
 
 
@@ -459,127 +503,127 @@ phy_mix_lh <- function(data, phy_gts_last, phy_gts_search, mix_prop_last, mix_pr
 
 
 # optim_fuzzy <- function(data, phy_gts, phylo, node_dist, max_dist, mix_nodes, mix_fit, index_optim = 1L)
-optim_fuzzy <- function(data, node_optim, index_optim, phy_gts, mix_gts, mix_prop, phylo, node_dist, error_rate, max_dist) {
+# optim_fuzzy <- function(data, node_optim, index_optim, phy_gts, mix_gts, mix_prop, phylo, node_dist, error_rate, max_dist) {
+#
+#   # check args
+#   stopifnot(is.data.frame(data),
+#             is_phylo(phylo),
+#             is.matrix(phy_gts) && ncol(phy_gts) > 0,
+#             is.matrix(mix_gts) && ncol(mix_gts) > 0,
+#             nrow(data) == nrow(phy_gts),
+#             ncol(phy_gts) == Nnode2(phylo),
+#             is.matrix(node_dist) && ncol(node_dist) == nrow(node_dist),
+#             ncol(node_dist) == ncol(phy_gts),
+#             is_double(mix_prop) && all(mix_prop >= 0 | mix_prop <= 1) && (abs(1 - sum(mix_prop)) < 2e-10),
+#             ncol(mix_gts) == length(mix_prop),
+#             is_scalar_integerish(max_dist) && max_dist >= 0,
+#             is_scalar_integerish(index_optim) && index_optim > 0 && index_optim <= length(mix_prop),
+#             is_scalar_integerish(node_optim) && node_optim > 0 && node_optim <= ncol(phy_gts))
+#
+#   # null result
+#   result <- list(sites = integer(),
+#                  optimised = FALSE,
+#                  neighbour = NA_integer_,
+#                  n_sites = 0,
+#                  lh_delta = 0)
+#
+#   # find neighbouring nodes
+#   neighb_nodes <-
+#     node_dist_range(node = node_optim,
+#                     phylo = phylo,
+#                     node_dist = node_dist,
+#                     max_dist = max_dist,
+#                     inclusive = TRUE)
+#
+#   if (length(neighb_nodes) > 0) {
+#     mix_gts <- cbind(phy_gts[, node_optim], mix_gts[, -index_optim, drop = FALSE])
+#     # find sites that differ from neighbours and flipping increases likelihood
+#     optim_sites <-
+#       optim_fuzzy_search(data,
+#                          mix_gts = mix_gts,
+#                          gts_neighb = phy_gts[, neighb_nodes, drop = FALSE],
+#                          dist_neighb = node_dist[neighb_nodes],
+#                          prop = c(mix_prop[index_optim], mix_prop[-index_optim]),
+#                          max_sites = max_dist,
+#                          error_rate = error_rate)
+#
+#     if (length(optim_sites$n_index) == 1) {
+#       result <- list(sites = optim_sites$site_index,
+#                      optimised = TRUE,
+#                      neighbour = neighb_nodes[optim_sites$n_index],
+#                      n_sites = length(optim_sites$site_index),
+#                      lh_delta = optim_sites$lh_delta)
+#     }
+#   }
+#
+#   return(result)
+# }
 
-  # check args
-  stopifnot(is.data.frame(data),
-            is_phylo(phylo),
-            is.matrix(phy_gts) && ncol(phy_gts) > 0,
-            is.matrix(mix_gts) && ncol(mix_gts) > 0,
-            nrow(data) == nrow(phy_gts),
-            ncol(phy_gts) == Nnode2(phylo),
-            is.matrix(node_dist) && ncol(node_dist) == nrow(node_dist),
-            ncol(node_dist) == ncol(phy_gts),
-            is_double(mix_prop) && all(mix_prop >= 0 | mix_prop <= 1) && (abs(1 - sum(mix_prop)) < 2e-10),
-            ncol(mix_gts) == length(mix_prop),
-            is_scalar_integerish(max_dist) && max_dist >= 0,
-            is_scalar_integerish(index_optim) && index_optim > 0 && index_optim <= length(mix_prop),
-            is_scalar_integerish(node_optim) && node_optim > 0 && node_optim <= ncol(phy_gts))
-
-  # null result
-  result <- list(sites = integer(),
-                 optimised = FALSE,
-                 neighbour = NA_integer_,
-                 n_sites = 0,
-                 lh_delta = 0)
-
-  # find neighbouring nodes
-  neighb_nodes <-
-    node_dist_range(node = node_optim,
-                    phylo = phylo,
-                    node_dist = node_dist,
-                    max_dist = max_dist,
-                    inclusive = TRUE)
-
-  if (length(neighb_nodes) > 0) {
-    mix_gts <- cbind(phy_gts[, node_optim], mix_gts[, -index_optim, drop = FALSE])
-    # find sites that differ from neighbours and flipping increases likelihood
-    optim_sites <-
-      optim_fuzzy_search(data,
-                         mix_gts = mix_gts,
-                         gts_neighb = phy_gts[, neighb_nodes, drop = FALSE],
-                         dist_neighb = node_dist[neighb_nodes],
-                         prop = c(mix_prop[index_optim], mix_prop[-index_optim]),
-                         max_sites = max_dist,
-                         error_rate = error_rate)
-
-    if (length(optim_sites$n_index) == 1) {
-      result <- list(sites = optim_sites$site_index,
-                     optimised = TRUE,
-                     neighbour = neighb_nodes[optim_sites$n_index],
-                     n_sites = length(optim_sites$site_index),
-                     lh_delta = optim_sites$lh_delta)
-    }
-  }
-
-  return(result)
-}
-
-#' @importFrom dplyr count mutate filter bind_cols select starts_with
-#' @importFrom tidyr pivot_longer
-optim_fuzzy_search <- function(data, mix_gts, gts_neighb, dist_neighb, prop, max_sites, error_rate, fuzzy_conf = 1e-10) {
-  # first column of mix_gts corresponds to node to be optimised
-  # check args
-  stopifnot(is.data.frame(data),
-            is.matrix(mix_gts) && ncol(mix_gts) > 0,
-            is.matrix(gts_neighb) && ncol(gts_neighb) > 0,
-            nrow(data) == nrow(mix_gts),
-            nrow(data) == nrow(gts_neighb),
-            is_double(prop) && all(prop >= 0 | prop <= 1) && (abs(1 - sum(prop)) < 2e-10),
-            is_scalar_integerish(max_sites))
-
-  sites_optim <- rowSums(cbind(mix_gts[,1], gts_neighb)) %>% { which(. > 0 & . < ncol(gts_neighb) + 1) }
-  data_sub <- data[sites_optim, ]
-  mix_gts <- mix_gts[sites_optim, , drop =F]
-  gts_neighb <- gts_neighb[sites_optim, , drop = FALSE]
-
-  # find neighbour with highest likelihood delta after flipping up to max_dist sites
-  # break ties by going with lower distance
-  result <-
-    tibble(site_index = sites_optim,
-           gt_0 = mix_gts[, 1],
-           site_lh_0 = {
-             cbind(0, mix_gts[, -1, drop = FALSE]) %>%
-               { colSums(t(.) * c(prop)) } %>%
-               force_to_interval() %>%
-               { with(data_sub, binom_likelihood(bac, dp, ., error_rate, by_site = TRUE)) }
-           },
-           site_lh_1 = {
-             cbind(1, mix_gts[, -1, drop = FALSE])  %>%
-               { colSums(t(.) * c(prop)) } %>%
-               force_to_interval() %>%
-               { with(data_sub, binom_likelihood(bac, dp, ., error_rate, by_site = TRUE)) }
-           }) %>%
-    mutate(site_lh_0 = if_else(gt_0 == 0, site_lh_0, site_lh_0 + log(fuzzy_conf)),
-           site_lh_1 = if_else(gt_0 == 1, site_lh_1, site_lh_1 + log(fuzzy_conf)),
-           gt_opt = if_else(site_lh_0 > site_lh_1, 0, 1)) %>%
-    bind_cols(
-      set_colnames(gts_neighb, str_c('N', seq_len(ncol(gts_neighb)))) %>% as_tibble()) %>%
-    filter(gt_0 != gt_opt) %>%
-    mutate(lh_delta = abs(site_lh_0 - site_lh_1)) %>%
-    select(-gt_0, -site_lh_0, -site_lh_1) %>%
-    pivot_longer(cols = starts_with('N'),
-                 names_to = 'n_index',
-                 names_prefix = 'N',
-                 values_to = 'gt_n') %>%
-    mutate(n_index = as.integer(n_index)) %>%
-    filter(gt_opt == gt_n) %>%
-    group_by(n_index) %>%
-    arrange(desc(lh_delta)) %>%
-    slice(seq_len(max_sites)) %>%
-    summarise(site_index = list(site_index),
-              num_alt = n(),
-              lh_delta = sum(lh_delta),
-              dist_n = dist_neighb[n_index[1]]) %>%
-    arrange(desc(lh_delta), dist_n, n_index) %>%
-    slice(1) %>%
-    { `if`(nrow(.) > 0,
-           with(., list(n_index = n_index, site_index = site_index[[1]], lh_delta = lh_delta)),
-           list(n_index = integer(), site_index = integer(), lh_delta = 0))
-    }
-
-  return(result)
-}
+#' #' @importFrom dplyr count mutate filter bind_cols select starts_with
+#' #' @importFrom tidyr pivot_longer
+#' optim_fuzzy_search <- function(data, mix_gts, gts_neighb, dist_neighb, prop, max_sites, error_rate, fuzzy_conf = 1e-10) {
+#'   # first column of mix_gts corresponds to node to be optimised
+#'   # check args
+#'   stopifnot(is.data.frame(data),
+#'             is.matrix(mix_gts) && ncol(mix_gts) > 0,
+#'             is.matrix(gts_neighb) && ncol(gts_neighb) > 0,
+#'             nrow(data) == nrow(mix_gts),
+#'             nrow(data) == nrow(gts_neighb),
+#'             is_double(prop) && all(prop >= 0 | prop <= 1) && (abs(1 - sum(prop)) < 2e-10),
+#'             is_scalar_integerish(max_sites))
+#'
+#'   sites_optim <- rowSums(cbind(mix_gts[,1], gts_neighb)) %>% { which(. > 0 & . < ncol(gts_neighb) + 1) }
+#'   data_sub <- data[sites_optim, ]
+#'   mix_gts <- mix_gts[sites_optim, , drop =F]
+#'   gts_neighb <- gts_neighb[sites_optim, , drop = FALSE]
+#'
+#'   # find neighbour with highest likelihood delta after flipping up to max_dist sites
+#'   # break ties by going with lower distance
+#'   result <-
+#'     tibble(site_index = sites_optim,
+#'            gt_0 = mix_gts[, 1],
+#'            site_lh_0 = {
+#'              cbind(0, mix_gts[, -1, drop = FALSE]) %>%
+#'                { colSums(t(.) * c(prop)) } %>%
+#'                force_to_interval() %>%
+#'                { with(data_sub, binom_likelihood(bac, dp, ., error_rate, by_site = TRUE)) }
+#'            },
+#'            site_lh_1 = {
+#'              cbind(1, mix_gts[, -1, drop = FALSE])  %>%
+#'                { colSums(t(.) * c(prop)) } %>%
+#'                force_to_interval() %>%
+#'                { with(data_sub, binom_likelihood(bac, dp, ., error_rate, by_site = TRUE)) }
+#'            }) %>%
+#'     mutate(site_lh_0 = if_else(gt_0 == 0, site_lh_0, site_lh_0 + log(fuzzy_conf)),
+#'            site_lh_1 = if_else(gt_0 == 1, site_lh_1, site_lh_1 + log(fuzzy_conf)),
+#'            gt_opt = if_else(site_lh_0 > site_lh_1, 0, 1)) %>%
+#'     bind_cols(
+#'       set_colnames(gts_neighb, str_c('N', seq_len(ncol(gts_neighb)))) %>% as_tibble()) %>%
+#'     filter(gt_0 != gt_opt) %>%
+#'     mutate(lh_delta = abs(site_lh_0 - site_lh_1)) %>%
+#'     select(-gt_0, -site_lh_0, -site_lh_1) %>%
+#'     pivot_longer(cols = starts_with('N'),
+#'                  names_to = 'n_index',
+#'                  names_prefix = 'N',
+#'                  values_to = 'gt_n') %>%
+#'     mutate(n_index = as.integer(n_index)) %>%
+#'     filter(gt_opt == gt_n) %>%
+#'     group_by(n_index) %>%
+#'     arrange(desc(lh_delta)) %>%
+#'     slice(seq_len(max_sites)) %>%
+#'     summarise(site_index = list(site_index),
+#'               num_alt = n(),
+#'               lh_delta = sum(lh_delta),
+#'               dist_n = dist_neighb[n_index[1]]) %>%
+#'     arrange(desc(lh_delta), dist_n, n_index) %>%
+#'     slice(1) %>%
+#'     { `if`(nrow(.) > 0,
+#'            with(., list(n_index = n_index, site_index = site_index[[1]], lh_delta = lh_delta)),
+#'            list(n_index = integer(), site_index = integer(), lh_delta = 0))
+#'     }
+#'
+#'   return(result)
+#' }
 
 # Implements a binary search to optimise phylotype mixture
 #' @importFrom purrr pmap map_dbl map_chr map_df map2_lgl
@@ -700,17 +744,39 @@ optim_phy_mix <- function(data,
     }
   }
 
-  # states_scored %>%
-  #   mutate(p1 = map_dbl(fit, ~ .[1]),
-  #          p2 = map_dbl(fit, ~ .[2]),
-  #          p3 = map_dbl(fit, ~ .[3])) %>%
-  #   arrange(desc(lh)) %>%
-  #   mutate(rank = row_number()) %>%
-  #   ggplot(aes(p1, p3, col = rank)) +
-  #   geom_point(size = 0.7)
-
   return(list(prop = top_fit / resolution,
               likelihood = top_lh + lh_same,
               n_iter = n_iter,
               converged = converged))
+}
+
+#' @export
+#' @importFrom tidyr complete
+#' @importFrom purrr map_lgl
+#' @importFrom dplyr group_by filter slice
+filter_tbtype <- function(tbtype_results,
+                          max_phylotypes = Inf,
+                          min_mix_prop = 0.01,
+                          max_p_val_perm = 0.01,
+                          max_p_val_wsrst = 0.01,
+                          min_abs_diff = 0) {
+  # TODO: check tbtype results
+  assert_that(
+    is.data.frame(tbtype_results),
+    is_scalar_proportion(min_mix_prop),
+    is_scalar_integerish(max_phylotypes) && max_phylotypes > 0,
+    is_scalar_proportion(max_p_val_perm),
+    is_scalar_proportion(max_p_val_wsrst),
+    is_scalar_double(min_abs_diff))
+
+  tbtype_results %>%
+    filter(map_lgl(mix_prop, ~ min(.) >= min_mix_prop),
+           abs_diff >= min_abs_diff,
+           p_val_wsrst <= max_p_val_wsrst,
+           p_val_perm <= max_p_val_perm,
+           mix_n <= max_phylotypes) %>%
+    group_by(sample_id) %>%
+    slice(which.max(mix_n)) %>%
+    ungroup() %>%
+    complete(sample_id = tbtype_results$sample_id)
 }

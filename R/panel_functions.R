@@ -92,8 +92,9 @@ panel_to_phylo <- function(panel) {
 }
 
 
-check_panel <- function(panel, phylotype = TRUE) {
+check_panel <- function(panel, mode = c('phylo', 'none', 'dr')) {
 
+  mode <- match.arg(mode)
 
   assertthat::assert_that(
     is.data.frame(panel),
@@ -103,8 +104,9 @@ check_panel <- function(panel, phylotype = TRUE) {
     all(nchar(panel$alt) > 0),
     all(stringr::str_detect(panel$ref, '^[ACTG]+$')),
     all(stringr::str_detect(panel$alt, '^[ACTG]+$')),
-    !phylotype || all(c('genotype', 'phylotype', 'parent_phylotype') %in% colnames(panel)),
-    !phylotype || all(panel$genotype %in% c(0L, 1L)))
+    mode != 'phylo' || all(c('genotype', 'phylotype', 'parent_phylotype') %in% colnames(panel)),
+    mode != 'phylo'  || all(panel$genotype %in% c(0L, 1L)),
+    mode != 'dr'  || 'drugs' %in% colnames(panel))
 
 
   invisible(TRUE)
@@ -155,7 +157,7 @@ create_bcftools_targets <- function(dir,
                                       TBtyper::who_dr_panel),
                                     indel_pad = 100) {
 
-  assert_that(check_panel(panel, phylotype = FALSE),
+  assert_that(check_panel(panel, 'none'),
               is_scalar_integerish(indel_pad),
               indel_pad >= 0)
 
