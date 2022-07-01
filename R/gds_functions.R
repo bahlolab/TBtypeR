@@ -12,20 +12,24 @@ get_allele_counts <- function(gds, panel,
                               max_ext_freq = 0.25) {
 
   # check_args
-  assert_that(is_gds(gds),
-              is.data.frame(panel),
-              all(c('chrom', 'pos', 'ref', 'alt') %in% colnames(panel)),
-              is_bool(verbose),
-              is_scalar_double(max_ext_freq) && max_ext_freq >= 0 && max_ext_freq <= 1)
+  assert_that(
+    is_gds(gds),
+    is.data.frame(panel),
+    all(c("chrom", "pos", "ref", "alt") %in% colnames(panel)),
+    is_bool(verbose),
+    is_scalar_double(max_ext_freq) && max_ext_freq >= 0 && max_ext_freq <= 1
+  )
 
   # find matching sites in gds
   if (!is_open_gds(gds)) {
-    warning('Opening closed gds file')
+    warning("Opening closed gds file")
     gds <- seqOpen(gds$filename, allow.duplicate = T)
-    on.exit({seqClose(gds)})
+    on.exit({
+      seqClose(gds)
+    })
   }
-  sam_id <- seqGetData(gds, 'sample.id')
-  var_id <- seqGetData(gds, 'variant.id')
+  sam_id <- seqGetData(gds, "sample.id")
+  var_id <- seqGetData(gds, "variant.id")
   gr <- with(panel, GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref))))
   seqSetFilter(gds, gr, verbose = verbose)
   panel_var <- panel_with_vid(panel) %>% select(vid, chrom, pos, ref, alt)
@@ -34,37 +38,43 @@ get_allele_counts <- function(gds, panel,
     variantInfo(gds) %>%
     as_tibble() %>%
     mutate(num_allele = seqNumAllele(gds)) %>%
-    separate_rows(alt, sep = ',') %>%
-    mutate(alt = if_else(nchar(alt)>0, alt, NA_character_)) %>%
+    separate_rows(alt, sep = ",") %>%
+    mutate(alt = if_else(nchar(alt) > 0, alt, NA_character_)) %>%
     group_by(variant.id) %>%
     mutate(alt_index = if_else(is.na(alt), NA_integer_, cumsum(!is.na(alt)))) %>%
     ungroup() %>%
     rename(chrom = chr) %>%
-    semi_join(panel_var, by = c('chrom', 'pos', 'ref')) %>%
+    semi_join(panel_var, by = c("chrom", "pos", "ref")) %>%
     (function(x) {
       bind_rows(
         # ref allele
         inner_join(x, select(panel_var, -alt), by = c("chrom", "pos", "ref")) %>%
           left_join(mutate(panel_var, priority = TRUE), by = c("chrom", "pos", "ref", "alt", "vid")) %>%
-          mutate(allele = 'ref', allele_index = 1L) %>%
+          mutate(allele = "ref", allele_index = 1L) %>%
           select(variant.id, vid, chrom, pos, allele, allele_index, num_allele, priority) %>%
           arrange(vid, priority) %>%
-          group_by(vid) %>% slice(1) %>% ungroup() %>%
+          group_by(vid) %>%
+          slice(1) %>%
+          ungroup() %>%
           select(-priority), # take first ref
         # alt allele
         inner_join(x, panel_var, by = c("chrom", "pos", "ref", "alt")) %>%
-          mutate(allele = 'alt', allele_index = 1L + alt_index) %>%
+          mutate(allele = "alt", allele_index = 1L + alt_index) %>%
           select(variant.id, vid, chrom, pos, allele, allele_index, num_allele) %>%
-          group_by(vid) %>% slice(1) %>% ungroup(), # take first alt
+          group_by(vid) %>%
+          slice(1) %>%
+          ungroup(), # take first alt
         # ext allele
         anti_join(x, panel_var, by = c("chrom", "pos", "ref", "alt")) %>%
           inner_join(select(panel_var, -alt), by = c("chrom", "pos", "ref")) %>%
-          group_by(vid, chrom, pos, ref, alt) %>% slice(1) %>% ungroup() %>%
-          mutate(allele = 'ext', allele_index = 1L + alt_index) %>%
+          group_by(vid, chrom, pos, ref, alt) %>%
+          slice(1) %>%
+          ungroup() %>%
+          mutate(allele = "ext", allele_index = 1L + alt_index) %>%
           select(variant.id, vid, chrom, pos, allele, allele_index, num_allele)
       )
     }) %>%
-    mutate(allele = factor(allele, c('ref', 'alt', 'ext'))) %>%
+    mutate(allele = factor(allele, c("ref", "alt", "ext"))) %>%
     arrange_all() %>%
     chop(c(-variant.id, -num_allele)) %>%
     mutate(offset = cumsum(num_allele) - num_allele)
@@ -78,38 +88,43 @@ get_allele_counts <- function(gds, panel,
     mutate(allele_index = offset + allele_index) %>%
     select(vid, allele, allele_index) %>%
     (function(x) {
-      filter(x, allele != 'ext') %>%
+      filter(x, allele != "ext") %>%
         pivot_wider(names_from = allele, values_from = allele_index, values_fill = NA) %>%
         left_join(
-          filter(x, allele == 'ext') %>%
+          filter(x, allele == "ext") %>%
             rename(ext = allele_index) %>%
             select(vid, ext) %>%
             chop(ext),
-          by = 'vid')
+          by = "vid"
+        )
     })
 
   ext_index <-
     var_index %>%
-    mutate(vidx = seq_along(vid),
-           ii = map(ext, seq_along)) %>%
+    mutate(
+      vidx = seq_along(vid),
+      ii = map(ext, seq_along)
+    ) %>%
     select(vidx, ext, ii) %>%
     unnest(c(ext, ii)) %>%
     pivot_wider(names_from = ii, values_from = ext) %>%
-    { left_join(tibble(vidx = seq_along(var_index$vid)), ., 'vidx') }
+    {
+      left_join(tibble(vidx = seq_along(var_index$vid)), ., "vidx")
+    }
 
 
-  AD <- seqGetData(gds, 'annotation/format/AD')$data
+  AD <- seqGetData(gds, "annotation/format/AD")$data
   # reset gds filter
-  seqSetFilter(gds, variant.id = var_id, verbose=verbose)
+  seqSetFilter(gds, variant.id = var_id, verbose = verbose)
   ref_ac <- AD[, var_index$ref, drop = F]
-  alt_ac <-  AD[, var_index$alt, drop = F]
+  alt_ac <- AD[, var_index$alt, drop = F]
   alt_ac[is.na(alt_ac)] <- 0L
   alt_ac[is.na(ref_ac)] <- NA_integer_
 
   ext_ac <- matrix(0L, nrow(ref_ac), ncol(ref_ac))
-  for (i in as.character(seq_len(ncol(ext_index)-1))) {
+  for (i in as.character(seq_len(ncol(ext_index) - 1))) {
     ei <- na.omit(select(ext_index, vidx, adidx = all_of(i)))
-    tmp <-  AD[, ei$adidx, drop=F]
+    tmp <- AD[, ei$adidx, drop = F]
     tmp[is.na(tmp)] <- 0L
     ext_ac[, ei$vidx] <- ext_ac[, ei$vidx, drop = F] + tmp
   }
@@ -120,21 +135,25 @@ get_allele_counts <- function(gds, panel,
 
   if (as_tibble) {
     allele_counts <-
-      as_tibble(data.frame(sample_id = sam_id,
-                           vid = rep(var_index$vid, each = length(sam_id)),
-                           ref_ac = c(ref_ac),
-                           alt_ac = c(alt_ac),
-                           depth = c(ref_ac + alt_ac + ext_ac))) %>%
+      as_tibble(data.frame(
+        sample_id = sam_id,
+        vid = rep(var_index$vid, each = length(sam_id)),
+        ref_ac = c(ref_ac),
+        alt_ac = c(alt_ac),
+        depth = c(ref_ac + alt_ac + ext_ac)
+      )) %>%
       mutate(baf = alt_ac / depth) %>%
       arrange_all()
-
   } else {
     allele_counts <-
       array(c(ref_ac, alt_ac),
-            dim = c(length(sam_id), nrow(var_index), 2),
-            dimnames = list(sample = sam_id,
-                            variant = var_index$vid,
-                            allele = c('ref', 'alt')))
+        dim = c(length(sam_id), nrow(var_index), 2),
+        dimnames = list(
+          sample = sam_id,
+          variant = var_index$vid,
+          allele = c("ref", "alt")
+        )
+      )
   }
 
   return(allele_counts)
@@ -172,6 +191,3 @@ is_open_gds <- function(x) {
 #            data = cbind(x$data, y$data))
 #     })
 # }
-
-
-
