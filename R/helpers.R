@@ -74,7 +74,7 @@ permute_similar <- function(states, new_gts, n_perm) {
 #' @importFrom rlang is_scalar_double is_scalar_integer
 binom_likelihood <- function(x, size, p, err, by_site = FALSE) {
   # check args
-  stopifnot(
+  assert_that(
     is_integerish(x),
     is_integerish(size),
     length(x) == length(size),

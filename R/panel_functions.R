@@ -3,6 +3,7 @@ panel_to_vid <- function(panel) {
     tidyr::unite(panel, 'vid', chrom, pos, ref, alt)
 }
 
+#' @importFrom dplyr bind_cols
 panel_with_vid <- function(panel) {
   panel_to_vid(panel) %>%
     select(vid) %>%
