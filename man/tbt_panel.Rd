@@ -5,7 +5,7 @@
 \alias{tbt_panel}
 \title{TBtyper SNP phylotype panel.}
 \format{
-A data frame with 9,264 rows and 8 columns:
+A data frame with 9,687 rows and 8 columns:
 \describe{
   \item{chrom}{H37Rv chromosome}
   \item{pos}{H37Rv genomic position}
@@ -23,6 +23,8 @@ Napier et al. 2020: \url{https://doi.org/10.1186/s13073-020-00817-3}
 Thawornwattana et al. 2021: \url{https://doi.org/10.1099/mgen.0.000697}
 
 Coscolla et al. 2021: \url{https://doi.org/10.1099/mgen.0.000477}
+
+Shuaib et al. 2022: \url{https://doi.org/10.3390/genes13060990}
 }
 \usage{
 tbt_panel
