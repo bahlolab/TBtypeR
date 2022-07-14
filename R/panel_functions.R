@@ -159,13 +159,14 @@ check_phylo <- function(phy) {
 #' @importFrom dplyr bind_rows select
 #' @importFrom tidyr chop
 #' @importFrom purrr map2_chr
-#' @importFrom stringr str_c
-create_bcftools_targets <- function(dir,
-                                    panel = bind_rows(
-                                      TBtyper::tbt_panel,
-                                      TBtyper::who_dr_panel
-                                    ),
-                                    indel_pad = 100) {
+#' @importFrom stringr str_c str_split
+create_calling_targets <- function(dir,
+                                   panel = bind_rows(
+                                     TBtyper::tbt_panel,
+                                     TBtyper::who_dr_panel),
+                                   indel_pad = 100,
+                                   core_genome = TBtyper::mtb_core_genome,
+                                   chromosome_name = 'Chromosome') {
   assert_that(
     check_panel(panel, "none"),
     is_scalar_integerish(indel_pad),
@@ -178,17 +179,41 @@ create_bcftools_targets <- function(dir,
 
   snp_targets_fn <- file.path(dir, "snp_targets.tsv.gz")
   indel_regions_fn <- file.path(dir, "indel_regions.bed.gz")
+  core_region_fn <- file.path(dir, 'core_regions.bed.gz')
 
   snps <- c("A", "C", "G", "T")
+  vars_set <-
+    map_chr(snps, ~ str_c(union(., snps), collapse = ",")) %>%
+    setNames(snps)
+
   # create snp_targets
   snp_targets <-
     panel %>%
     filter(nchar(ref) == 1, nchar(alt) == 1) %>%
-    select(chrom, pos, ref) %>%
+    select(pos, ref) %>%
+    (function(x) {
+      if (!is.null(core_genome)) {
+        core_genome %>%
+          mutate(sequence = map(sequence, function(x) {
+            tibble(ref = c(str_split(x, pattern = '', simplify = T)))
+          })) %>%
+          unnest(sequence) %>%
+          group_by(gene, pos) %>%
+          mutate(pos = pos + seq_along(pos) - 1L) %>%
+          ungroup() %>%
+          select(pos, ref) %>%
+          anti_join(x, by = 'pos') %>%
+          bind_rows(x) %>%
+          arrange(pos)
+      } else {
+        x
+      }
+    }) %>%
     distinct() %>%
-    mutate(vars = map_chr(ref, ~ str_c(union(., snps), collapse = ","))) %>%
-    select(chrom, pos, vars) %>%
-    arrange_all()
+    mutate(vars = vars_set[ref],
+           chrom = chromosome_name) %>%
+    select(chrom, pos, vars)
+
 
   if (nrow(snp_targets)) {
     readr::write_tsv(snp_targets, snp_targets_fn, col_names = FALSE, progress = F)
@@ -197,12 +222,12 @@ create_bcftools_targets <- function(dir,
     message("No SNP targets")
   }
 
-
   # create indel regions
   indel_regions <-
     panel %>%
     filter(!(nchar(ref) == 1 & nchar(alt) == 1)) %>%
-    with(GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref)))) %>%
+    with(GenomicRanges::GRanges(chromosome_name,
+                                IRanges::IRanges(start = pos, width = nchar(ref)))) %>%
     (function(x) GenomicRanges::reduce(x + indel_pad)) %>%
     sort()
 
@@ -212,4 +237,23 @@ create_bcftools_targets <- function(dir,
   } else {
     message("No indel regions")
   }
+
+  # create core regions
+
+  if (!is.null(core_genome)) {
+    core_region <-
+      core_genome %>%
+      with(GenomicRanges::GRanges(chromosome_name, IRanges::IRanges(start = pos, width = nchar(sequence)))) %>%
+      (function(x) GenomicRanges::reduce(x)) %>%
+      sort()
+
+    if (length(core_region)) {
+      rtracklayer::export.bed(core_region, core_region_fn)
+      message("Created core regions file: ", core_region_fn)
+    } else {
+      message("No core regions")
+    }
+
+  }
+
 }
