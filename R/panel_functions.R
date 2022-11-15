@@ -159,18 +159,20 @@ check_phylo <- function(phy) {
 #' @importFrom dplyr bind_rows select
 #' @importFrom tidyr chop
 #' @importFrom purrr map2_chr
-#' @importFrom stringr str_c str_split
+#' @importFrom stringr str_c str_split str_extract
 create_calling_targets <- function(dir,
                                    panel = bind_rows(
                                      TBtyper::tbt_panel,
                                      TBtyper::who_dr_panel),
                                    indel_pad = 100,
-                                   core_genome = TBtyper::mtb_core_genome,
-                                   chromosome_name = 'Chromosome') {
+                                   ref_fasta = NULL,
+                                   calling_regions = NULL) {
   assert_that(
     check_panel(panel, "none"),
     is_scalar_integerish(indel_pad),
-    indel_pad >= 0
+    indel_pad >= 0,
+    is.null(ref_fasta) || is_string(ref_fasta) && file.exists(ref_fasta),
+    is.null(calling_regions) || is_string(calling_regions) && file.exists(calling_regions)
   )
 
   if (!dir.exists(dir)) {
@@ -179,40 +181,45 @@ create_calling_targets <- function(dir,
 
   snp_targets_fn <- file.path(dir, "snp_targets.tsv.gz")
   indel_regions_fn <- file.path(dir, "indel_regions.bed.gz")
-  core_region_fn <- file.path(dir, 'core_regions.bed.gz')
 
   snps <- c("A", "C", "G", "T")
   vars_set <-
     map_chr(snps, ~ str_c(union(., snps), collapse = ",")) %>%
     setNames(snps)
 
+
+
   # create snp_targets
   snp_targets <-
     panel %>%
     filter(nchar(ref) == 1, nchar(alt) == 1) %>%
-    select(pos, ref) %>%
-    (function(x) {
-      if (!is.null(core_genome)) {
-        core_genome %>%
-          mutate(sequence = map(sequence, function(x) {
-            tibble(ref = c(str_split(x, pattern = '', simplify = T)))
-          })) %>%
-          unnest(sequence) %>%
-          group_by(gene, pos) %>%
-          mutate(pos = pos + seq_along(pos) - 1L) %>%
-          ungroup() %>%
-          select(pos, ref) %>%
-          anti_join(x, by = 'pos') %>%
-          bind_rows(x) %>%
-          arrange(pos)
-      } else {
-        x
-      }
-    }) %>%
+    select(chrom, pos, ref) %>%
     distinct() %>%
-    mutate(vars = vars_set[ref],
-           chrom = chromosome_name) %>%
-    select(chrom, pos, vars)
+    mutate(vars = vars_set[ref]) %>%
+    select(chrom, pos, vars) %>%
+    arrange_all()
+
+  if (!is.null(ref_fasta) && !is.null(calling_regions)) {
+
+    ranges <- rtracklayer::import.bed(calling_regions)
+    ref <- Biostrings::readDNAStringSet(ref_fasta)
+    names(ref) <- str_extract(names(ref), '^[^\\s]+')
+    seqs <- BSgenome::getSeq(ref, ranges)
+
+    snp_targets <-
+      tibble(chrom = as.character(GenomicRanges::seqnames(ranges)),
+             pos = GenomicRanges::start(ranges),
+             ref = as.character(seqs)) %>%
+      mutate(ref = map(ref, ~ c(str_split(., '', simplify = T))),
+             offset = map(ref, seq_along)) %>%
+      unnest(c(ref, offset)) %>%
+      mutate(pos = pos + offset - 1L) %>%
+      mutate(vars = vars_set[ref]) %>%
+      select(chrom, pos, vars) %>%
+      bind_rows(snp_targets) %>%
+      distinct() %>%
+      arrange_all()
+  }
 
 
   if (nrow(snp_targets)) {
@@ -226,7 +233,7 @@ create_calling_targets <- function(dir,
   indel_regions <-
     panel %>%
     filter(!(nchar(ref) == 1 & nchar(alt) == 1)) %>%
-    with(GenomicRanges::GRanges(chromosome_name,
+    with(GenomicRanges::GRanges(chrom,
                                 IRanges::IRanges(start = pos, width = nchar(ref)))) %>%
     (function(x) GenomicRanges::reduce(x + indel_pad)) %>%
     sort()
@@ -236,24 +243,6 @@ create_calling_targets <- function(dir,
     message("Created indel regions file: ", indel_regions_fn)
   } else {
     message("No indel regions")
-  }
-
-  # create core regions
-
-  if (!is.null(core_genome)) {
-    core_region <-
-      core_genome %>%
-      with(GenomicRanges::GRanges(chromosome_name, IRanges::IRanges(start = pos, width = nchar(sequence)))) %>%
-      (function(x) GenomicRanges::reduce(x)) %>%
-      sort()
-
-    if (length(core_region)) {
-      rtracklayer::export.bed(core_region, core_region_fn)
-      message("Created core regions file: ", core_region_fn)
-    } else {
-      message("No core regions")
-    }
-
   }
 
 }
