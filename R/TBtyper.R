@@ -9,8 +9,10 @@ tbtype <- function(gds,
                    panel = TBtyper::tbt_panel,
                    max_phylotypes = 5L,
                    min_mix_prop = 0.001,
-                   min_depth = 50L,
-                   max_depth = 250L,
+                   min_median_depth = 5L,
+                   min_depth_fold = 5,
+                   max_depth = 200L,
+                   max_depth_fold = 2,
                    max_p_val_perm = 0.01,
                    max_p_val_wsrst = 0.01,
                    spike_in_p = 0.01,
@@ -24,7 +26,8 @@ tbtype <- function(gds,
                    exclude_distance = 10L,
                    exclude_inner = FALSE,
                    error_rate = 0.005,
-                   verbose = FALSE) {
+                   verbose = FALSE,
+                   seed = 1L) {
 
   # TODO: allow VCF input as well as gds input?
   # TODO: Cache Allele counts?
@@ -34,13 +37,17 @@ tbtype <- function(gds,
   assert_that(
     is_gds(gds),
     is_scalar_integerish(max_phylotypes) && max_phylotypes > 0,
-    is_scalar_integerish(min_depth) && min_depth > 0,
+    is_scalar_integerish(min_median_depth) && min_median_depth > 0,
+    is_scalar_double(min_depth_fold) && min_depth_fold >= 1,
     is_scalar_integerish(max_depth) && max_depth > 0,
+    is_scalar_double(max_depth_fold) && max_depth_fold >= 1,
     is_scalar_proportion(max_p_val_perm),
     is_scalar_proportion(max_p_val_wsrst),
     is_scalar_integerish(n_perm),
+    is_scalar_integerish(seed),
     is.null(error_rate) || is_scalar_double(error_rate)
   )
+  set.seed(seed)
 
   phylo <- panel_to_phylo(panel)
   geno <- panel_to_geno(panel)
@@ -83,8 +90,10 @@ tbtype <- function(gds,
           sm_allele_counts = allele_counts[i, , ],
           max_phylotypes = max_phylotypes,
           min_mix_prop = min_mix_prop,
-          min_depth = min_depth,
+          min_median_depth = min_median_depth,
+          min_depth_fold = min_depth_fold,
           max_depth = max_depth,
+          max_depth_fold = max_depth_fold,
           max_p_val_perm = max_p_val_perm,
           max_p_val_wsrst = max_p_val_wsrst,
           spike_in_p = spike_in_p,
@@ -97,7 +106,8 @@ tbtype <- function(gds,
           exclude_descendant = exclude_descendant,
           exclude_distance = exclude_distance,
           exclude_inner = exclude_inner,
-          error_rate = error_rate
+          error_rate = error_rate,
+          seed = seed
         ) %>%
           mutate(sample_id = rownames(allele_counts)[i]),
         error = function(e) {
@@ -122,8 +132,10 @@ tbtype_sample <- function(phylo,
                           sm_allele_counts,
                           max_phylotypes,
                           min_mix_prop,
-                          min_depth,
+                          min_median_depth,
+                          min_depth_fold,
                           max_depth,
+                          max_depth_fold,
                           max_p_val_perm,
                           max_p_val_wsrst,
                           spike_in_p,
@@ -136,26 +148,39 @@ tbtype_sample <- function(phylo,
                           exclude_descendant,
                           exclude_distance,
                           exclude_inner,
-                          error_rate) {
+                          error_rate,
+                          seed) {
+
+  set.seed(seed)
+  median_dp <- median(as.integer(rowSums(sm_allele_counts)), na.rm = TRUE)
+  max_dp <- min(max_depth, as.integer(round(median_dp*max_depth_fold)))
+  min_dp <- as.integer(round(median_dp/min_depth_fold))
+
+  # no data
+  if (is.na(median_dp)) {
+    return(tibble(failed = TRUE, reason = "not enough sites with coverage"))
+  }
+  # excluded samples with low median depth
+  if (median_dp < min_median_depth) {
+    return(tibble(failed = TRUE, reason = "median depth too low"))
+  }
+
   data <-
     tibble(
       variant = rownames(sm_allele_counts),
       bac = sm_allele_counts[, "alt"],
-      dp = rowSums(sm_allele_counts)
+      dp = as.integer(rowSums(sm_allele_counts))
     ) %>%
-    filter(dp >= min_depth) %>%
-    # round down samples with depth greater than max_depth
     mutate(
-      dp_gt_mx = dp > max_depth,
-      bac = replace(bac, dp_gt_mx, round(max_depth * (bac / dp)[dp_gt_mx]) %>% as.integer()),
-      dp = replace(dp, dp_gt_mx, max_depth)
+      bac = if_else(dp > max_dp, as.integer(round(max_dp * bac / dp)), bac),
+      dp = if_else(dp > max_dp, max_dp, dp),
     ) %>%
-    select(-dp_gt_mx) %>%
+    filter(dp >= min_dp) %>%
     na.omit()
 
-  # arbitrary threshold on min sites
+  # exclue if not enough sites remaining
   if (nrow(data) < min_sites) {
-    return(tibble(note = "insufficient data"))
+    return(tibble(failed = TRUE, reason = "not enough sites with coverage"))
   }
 
   phy_gts <- gts[data$variant, ]
@@ -200,7 +225,7 @@ tbtype_sample <- function(phylo,
         error_rate, p_val_perm, p_val_wsrst, abs_diff
       )
   } else {
-    return(tibble(note = "no matches passing filters"))
+    return(tibble(failed = TRUE, reason = "no matches passing filters"))
   }
 
   for (i in seq_len(max_phylotypes - 1)) {
@@ -370,7 +395,8 @@ tbtype_sample <- function(phylo,
       mix_node = node,
       mix_phylotype = phylotype
     ) %>%
-    chop(starts_with("mix_"))
+    chop(starts_with("mix_")) %>%
+    mutate(failed = FALSE)
 }
 
 
@@ -753,17 +779,84 @@ filter_tbtype <- function(tbtype_results,
     complete(sample_id = tbtype_results$sample_id)
 }
 
+mix_cols <- function() {
+  c("mix_index", "mix_node", "mix_phylotype", "mix_prop", "mix_drug_res")
+}
+
 #' @export
 #' @importFrom tidyr unnest
-#' @importFrom dplyr rename_with
-#' @importFrom stringr str_remove
-unnest_tbtype <- function(tbtype_results) {
+#' @importFrom purrr map_lgl
+unnest_mixtures <- function(tbtype_results) {
   # TODO: check tbtype results
   assert_that(
     is.data.frame(tbtype_results)
   )
 
-  tbtype_results %>%
-    unnest(starts_with("mix_")) %>%
-    rename_with(str_remove, starts_with("mix_"), "mix_")
+  columns <-
+    colnames(tbtype_results) %>%
+    intersect(mix_cols())
+
+  is_list <-
+    map_lgl(columns, ~ is.list(tbtype_results[[.]])) %>%
+    setNames(columns)
+
+  if ("mix_drug_res" %in% columns) {
+    is_list["mix_drug_res"] <- !is_list_of_df(tbtype_results[["mix_drug_res"]])
+  }
+
+  if (length(columns)==0) {
+    warning("No mixture columns present")
+    return(tbtype_results)
+  }
+  if (all(is_list)) {
+    return(
+      tbtype_results %>%
+        unnest(all_of(columns)))
+  }
+  if (all(!is_list)) {
+    warning("Mixture columns already unnested")
+    return(tbtype_results)
+  }
+  rlang::abort("Cannot unnest a mixture of nested and unnested mixture columns")
+}
+
+#' @export
+#' @importFrom tidyr chop
+#' @importFrom purrr map_lgl
+nest_mixtures <- function(tbtype_results) {
+  # TODO: check tbtype results
+  assert_that(
+    is.data.frame(tbtype_results)
+  )
+
+  columns <-
+    colnames(tbtype_results) %>%
+    intersect(mix_cols())
+
+  is_list <-
+    map_lgl(columns, ~ is.list(tbtype_results[[.]])) %>%
+    setNames(columns)
+
+  if ("mix_drug_res" %in% columns) {
+    is_list["mix_drug_res"] <- !is_list_of_df(tbtype_results[["mix_drug_res"]])
+  }
+
+  if (length(columns)==0) {
+    warning("No mixture columns present")
+    return(tbtype_results)
+  }
+  if (all(is_list)) {
+    warning("Mixture columns already nested")
+    return(tbtype_results)
+  }
+  if (all(!is_list)) {
+    return(
+      tbtype_results %>%
+        chop(all_of(columns)))
+  }
+  rlang::abort("Cannot nest a mixture of nested and unnested mixture columns")
+}
+
+is_list_of_df <- function(x) {
+  all(map_lgl(x, ~ (is.null(.) || is.data.frame(.))))
 }
