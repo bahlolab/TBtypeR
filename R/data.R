@@ -35,16 +35,3 @@
 #' Licence: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 IGO (CC BY-NC-SA 3.0 IGO) \url{https://creativecommons.org/licenses/by-nc-sa/3.0/igo/deed.en}
 "who_dr_panel"
 
-
-#' Coordinates of core genome coding sequences in H37Rv
-#'
-#' @format A data frame with 1,155 rows and 3 columns:
-#' \describe{
-#'   \item{gene}{H37Rv gene name}
-#'   \item{pos}{start position of gene}
-#'   \item{sequence}{sequence of gene in H37Rv}
-#' }
-#' @source Pan and Core Genome Analysis of 183 Mycobacterium tuberculosis Strains Revealed a High Inter-Species Diversity among the Human Adapted Strains,
-#' Zakham et al., 2021 \url{https://doi.org/10.3390/antibiotics10050500}
-#'
-"mtb_core_genome"
