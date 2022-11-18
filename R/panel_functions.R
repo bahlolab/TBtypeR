@@ -166,13 +166,15 @@ create_calling_targets <- function(dir,
                                      TBtyper::who_dr_panel),
                                    indel_pad = 100,
                                    ref_fasta = NULL,
-                                   calling_regions = NULL) {
+                                   calling_regions = get_core_regions()) {
   assert_that(
     check_panel(panel, "none"),
     is_scalar_integerish(indel_pad),
     indel_pad >= 0,
     is.null(ref_fasta) || is_string(ref_fasta) && file.exists(ref_fasta),
-    is.null(calling_regions) || is_string(calling_regions) && file.exists(calling_regions)
+    is.null(calling_regions) ||
+      inherits(calling_regions, 'GenomicRanges') ||
+      is_string(calling_regions) && file.exists(calling_regions)
   )
 
   if (!dir.exists(dir)) {
@@ -201,14 +203,16 @@ create_calling_targets <- function(dir,
 
   if (!is.null(ref_fasta) && !is.null(calling_regions)) {
 
-    ranges <- rtracklayer::import.bed(calling_regions)
+    if (!inherits(calling_regions, 'GenomicRanges')) {
+      calling_regions <- rtracklayer::import.bed(calling_regions)
+    }
     ref <- Biostrings::readDNAStringSet(ref_fasta)
     names(ref) <- str_extract(names(ref), '^[^\\s]+')
-    seqs <- BSgenome::getSeq(ref, ranges)
+    seqs <- BSgenome::getSeq(ref, calling_regions)
 
     snp_targets <-
-      tibble(chrom = as.character(GenomicRanges::seqnames(ranges)),
-             pos = GenomicRanges::start(ranges),
+      tibble(chrom = as.character(GenomicRanges::seqnames(calling_regions)),
+             pos = GenomicRanges::start(calling_regions),
              ref = as.character(seqs)) %>%
       mutate(ref = map(ref, ~ c(str_split(., '', simplify = T))),
              offset = map(ref, seq_along)) %>%
@@ -245,4 +249,11 @@ create_calling_targets <- function(dir,
     message("No indel regions")
   }
 
+}
+
+get_core_regions <- function() {
+  fn <- system.file(package = 'TBtyper', 'bed', 'ASM19595v2_core_genome.bed.gz')
+  assert_that(file.exists(fn))
+  regions <- rtracklayer::import.bed(fn)
+  return(regions)
 }

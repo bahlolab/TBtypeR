@@ -3,6 +3,7 @@
 #' @importFrom dplyr filter select mutate case_when if_else
 #' @importFrom tidyr nest chop unnest expand_grid
 #' @importFrom purrr map_lgl
+#' @importFrom SeqArray seqOpen seqClose
 assign_dr <- function(tbtype_results, gds,
                       dr_panel = TBtyper::who_dr_panel,
                       verbose = FALSE,
@@ -24,7 +25,7 @@ assign_dr <- function(tbtype_results, gds,
   )
 
   if (!is_open_gds(gds)) {
-    warning("Opening closed gds file")
+    message("Opening gds file")
     gds <- seqOpen(gds$filename, allow.duplicate = T)
     on.exit({
       seqClose(gds)
@@ -53,11 +54,12 @@ assign_dr <- function(tbtype_results, gds,
     inner_join(tbtype_results %>%
                  filter(!is.na(error_rate)) %>%
                  unnest_mixtures() %>%
-                 select(sample_id, error_rate, mix_phylotype, mix_prop) %>%
-                 nest(type_data = c(-sample_id)),
+                 select(sample_id, n_phy, error_rate, mix_phylotype, mix_prop) %>%
+                 nest(type_data = -c(sample_id, n_phy)),
                by = "sample_id"
     ) %>%
     mutate(drug_assign = map2(drug_ac, type_data, function(drug_ac, type_data) {
+      assert_that(sum(type_data$mix_prop) == 1)
       err <- first(type_data$error_rate)
       mix_n <- nrow(type_data)
       x1 <-
@@ -75,7 +77,6 @@ assign_dr <- function(tbtype_results, gds,
           p = mix_prop * (1 - err) + (1 - mix_prop) * (err)
         ) %>%
         expand_grid(drug_ac, .) %>%
-        # expand_grid(drug_ac %>% mutate(alt_ac = replace(alt_ac, 1, as.integer(252 * 0.30))), .) %>%
         rowwise() %>%
         mutate(binom_prob = binom.test(alt_ac, depth, p)$p.value) %>%
         group_by(vid, alt_ac, depth, baf, drugs) %>%
@@ -92,43 +93,37 @@ assign_dr <- function(tbtype_results, gds,
                    lengths(mix_phylotype) == 1 &&
                    is.na(mix_phylotype[[1]]))) %>%
         ungroup() %>%
-        mutate(mix_phylotype = as.list(mix_phylotype),
+        mutate(mix_phylotype = if_else(status == "uncertain",
+                                       list(type_data$mix_phylotype),
+                                       as.list(mix_phylotype)),
                binom_prob = if_else(status == "uncertain", NA_real_, binom_prob),
                posterior  = if_else(status == "uncertain", NA_real_, posterior))
     })) %>%
-    select(sample_id, drug_assign) %>%
-    unnest(drug_assign)
-
+    select(sample_id, n_phy, drug_assign) %>%
+    unnest(drug_assign) %>%
+    mutate(status = ordered(status, c('homoresistant', 'heteroresistant', 'uncertain'))) %>%
+    unnest(mix_phylotype) %>%
+    separate_rows(drugs, sep = ';') %>%
+    rename(drug = drugs) %>%
+    mutate(variant_status = status) %>%
+    group_by(sample_id, n_phy, mix_phylotype, drug) %>%
+    mutate(status = min(status)) %>%
+    ungroup() %>%
+    nest(variant_data = -c(sample_id, n_phy, mix_phylotype, drug, status)) %>%
+    nest(mix_drug_res = -c(sample_id, n_phy, mix_phylotype))
 
   ret <-
     tbtype_results %>%
     unnest_mixtures() %>%
-    left_join(
-      dr_res %>%
-        filter(status != 'homoresistant') %>%
-        select(-mix_phylotype) %>%
-        nest(homo_res = -sample_id),
-      by = 'sample_id'
-    ) %>%
-    left_join(
-      dr_res %>%
-        filter(status == 'homoresistant') %>%
-        unnest(mix_phylotype) %>%
-        nest(other_res = -c(sample_id, mix_phylotype)),
-      by = c('sample_id', 'mix_phylotype')
-    ) %>%
-    mutate(mix_drug_res = map2(homo_res, other_res, bind_rows) %>%
-             map(arrange_all)) %>%
-    select(-homo_res, -other_res) %>%
+    left_join(dr_res, by = c('sample_id','n_phy', 'mix_phylotype')) %>%
+    mutate(mix_drug_res = map(mix_drug_res, function(x) {
+      `if`(is.null(x), tibble(drug = NA_character_, status = NA_character_), x)
+    })) %>%
     nest_mixtures() %>%
     mutate(drugs_resistant = map(mix_drug_res, function(x) {
-      bind_rows(x, tibble(drugs = character())) %>%
-        select(drugs) %>%
-        separate_rows(drugs, sep = ';') %>%
-        distinct() %>%
-        pull(drugs) %>%
-        sort()
+      bind_rows(x) %>% pull(drug) %>% unique() %>% na.omit() %>% sort()
     }))
 
+  return(ret)
 }
 

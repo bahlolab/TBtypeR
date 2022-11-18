@@ -294,3 +294,23 @@ combinations <- function(x, zero_len_as_na = TRUE) {
     }
   })
 }
+
+
+
+pdist <- function(mat, threads = 1) {
+
+  dist_func_ptr <- RcppXPtrUtils::cppXPtr(
+    "double customDist(const arma::mat &A, const arma::mat &B) {
+        uint64_t d = 0;
+        for (arma::uword idx = 0; idx < A.size(); ++idx) {
+          if (A.at(idx) != B.at(idx) && std::isfinite(A.at(idx)) && std::isfinite(B.at(idx))) {
+                ++d;
+          }
+        }
+        return d;
+     }",
+    depends = c("RcppArmadillo"))
+
+  parallelDist::parDist(mat, method="custom", func = dist_func_ptr, threads = threads)
+}
+

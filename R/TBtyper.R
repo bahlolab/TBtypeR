@@ -765,6 +765,7 @@ filter_tbtype <- function(tbtype_results,
   )
 
   tbtype_results %>%
+    nest_mixtures() %>%
     filter(lengths(mix_prop) > 0) %>%
     filter(
       map_lgl(mix_prop, ~ min(.) >= min_mix_prop),

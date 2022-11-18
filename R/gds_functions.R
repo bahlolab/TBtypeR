@@ -19,8 +19,7 @@ get_allele_counts <- function(gds, panel,
     is_bool(verbose),
     is_scalar_double(max_ext_freq) && max_ext_freq >= 0 && max_ext_freq <= 1
   )
-
-  # find matching sites in gds
+  # ensure gds is open
   if (!is_open_gds(gds)) {
     warning("Opening closed gds file")
     gds <- seqOpen(gds$filename, allow.duplicate = T)
@@ -28,6 +27,7 @@ get_allele_counts <- function(gds, panel,
       seqClose(gds)
     })
   }
+  # find matching sites in gds
   sam_id <- seqGetData(gds, "sample.id")
   var_id <- seqGetData(gds, "variant.id")
   gr <- with(panel, GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref))))
@@ -167,27 +167,97 @@ is_open_gds <- function(x) {
   is_gds(x) && !xptr::is_null_xptr(x$ptr)
 }
 
+#' @export
+#' @importFrom SeqArray seqGetData seqSetFilter seqClose seqOpen
 #' @importFrom magrittr "%>%"
-#' @importFrom SeqArray seqGetData seqSetFilter seqOpen seqClose
-# gds_get_AD_parallel <- function(gds, verbose = FALSE) {
-#
-#   fn = gds$filename
-#   var.id = seqGetData(gds, 'variant.id')
-#   sam.id = seqGetData(gds, 'sample.id')
-#   workers = future::nbrOfWorkers()
-#
-#   parallel::splitIndices(length(var.id), workers) %>%
-#     map( ~ var.id [.] ) %>%
-#     { .[lengths(.) > 0 ] } %>%
-#     furrr::future_map(function(variant.id) {
-#       gds <- seqOpen(fn, allow.duplicate = T)
-#       seqSetFilter(gds, variant.id = variant.id, sample.id = sam.id, verbose = verbose)
-#       AD <- seqGetData(gds, 'annotation/format/AD')
-#       seqClose(gds)
-#       return(AD)
-#     }) %>%
-#     purrr::reduce(function(x, y) {
-#       list(length = c(x$length, y$length),
-#            data = cbind(x$data, y$data))
-#     })
-# }
+snp_distance <- function(gds,
+                         regions = get_core_regions(),
+                         allelic_mode = 4L,
+                         min_median_depth = 5L,
+                         max_var_missing = 0.05,
+                         max_sample_missing = 0.05,
+                         threads = min(8L, parallel::detectCores())) {
+
+  assert_that(
+    is_gds(gds),
+    is.null(regions) || inherits(regions, 'GenomicRanges'),
+    is_scalar_integer(allelic_mode) && allelic_mode > 1L,
+    is_scalar_integer(min_median_depth) && min_median_depth >= 0L,
+    is_scalar_proportion(max_sample_missing),
+    is_scalar_proportion(max_var_missing)
+  )
+  # ensure gds is open
+  if (!is_open_gds(gds)) {
+    warning("Opening closed gds file")
+    gds <- seqOpen(gds$filename, allow.duplicate = T)
+    on.exit({
+      seqClose(gds)
+    })
+  }
+  # filter gds to regions and allelic_mode
+  seqSetFilter(gds, regions)
+  seqSetFilter(gds, SeqVarTools::isSNV(gds, biallelic=FALSE), action = 'intersect')
+  seqSetFilter(gds, seqNumAllele(gds) == allelic_mode, action = 'intersect')
+  assert_that(length(seqGetData(gds, 'variant.id')) > 0)
+
+  # assign GT based on allelic depth
+  AD0 <- seqGetData(gds, 'annotation/format/AD')$data
+  nsam <- nrow(AD0)
+  nvar <- ncol(AD0) / allelic_mode
+
+  GT <- matrix(0L, nrow=nsam, ncol=nvar) %>%
+    set_rownames(seqGetData(gds, 'sample.id'))
+  AD_MX <- AD0[, 1 + 4L * (seq_len(nvar) - 1L)]
+  DP <- AD_MX
+  GT[is.na(AD_MX)] <- NA_integer_
+  for (i in 2:allelic_mode) {
+    AD_i <- AD0[, i + 4L * (seq_len(nvar) - 1L)]
+    DP <- DP + AD_i
+    is_greater <- which(AD_i > AD_MX)
+    AD_MX[is_greater] <- AD_i[is_greater]
+    GT[is_greater] <- i-1L
+  }
+  sam_med_dp <- apply(DP, 1, median, na.rm = TRUE)
+  rm(DP, AD0, AD_i, AD_MX)
+
+  # filter samples on median depth
+  low_dp <- which(sam_med_dp < min_median_depth)
+  if (length(low_dp)) {
+    message("Excluded ", length(low_dp), '/', nsam, ' samples due to low depth')
+    GT <- GT[-low_dp, ]
+    nsam <- nrow(GT)
+  }
+
+  # filter variants or samples first, maximizing remaining data
+  var_miss_0 <- colSums(is.na(GT)) / nsam
+  sam_miss_0 <- rowSums(is.na(GT)) / nvar
+  var_set_0 <- which(var_miss_0 <= max_var_missing)
+  sam_set_0 <- which(sam_miss_0 <= max_sample_missing)
+
+  var_miss_1 <- colSums(is.na(GT[sam_set_0, ])) / length(sam_set_0)
+  sam_miss_1 <- rowSums(is.na(GT[, var_set_0])) / length(var_set_0)
+  var_set_1 <- which(var_miss_1 <= max_var_missing)
+  sam_set_1 <- which(sam_miss_1 <= max_sample_missing)
+
+  n_v0_s1 <- length(var_set_0) * length(sam_set_1)
+  n_v1_s0 <- length(var_set_1) * length(sam_set_0)
+
+  if (n_v0_s1 >= n_v1_s0) {
+    var_set <-  var_set_0
+    sam_set <- sam_set_1
+  } else {
+    var_set <-  var_set_1
+    sam_set <- sam_set_0
+  }
+  if (length(sam_set) < nsam) {
+    message("Excluded ", nsam - length(sam_set), '/', nsam, ' samples due to high missingness')
+  }
+  if (length(var_set) < nvar) {
+    message("Excluded ", nvar - length(var_set), '/', nvar, ' variants due to high missingness')
+  }
+
+  GT <- GT[sam_set, var_set]
+
+  pdist(GT, threads = threads)
+
+}
