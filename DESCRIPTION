@@ -29,13 +29,14 @@ Imports:
     ape,
     SeqVarTools,
     IRanges,
-    quadprog,
-    RhpcBLASctl,
     pracma,
     assertthat,
     xptr,
     Rsamtools,
-    rtracklayer
+    rtracklayer,
+    parallelDist,
+    RcppXPtrUtils,
+    RcppArmadillo
 RoxygenNote: 7.2.1
 Suggests: 
     testthat (>= 2.1.0)
