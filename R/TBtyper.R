@@ -787,7 +787,7 @@ mix_cols <- function() {
 #' @export
 #' @importFrom tidyr unnest
 #' @importFrom purrr map_lgl
-unnest_mixtures <- function(tbtype_results) {
+unnest_mixtures <- function(tbtype_results, warn=TRUE) {
   # TODO: check tbtype results
   assert_that(
     is.data.frame(tbtype_results)
@@ -806,7 +806,9 @@ unnest_mixtures <- function(tbtype_results) {
   }
 
   if (length(columns)==0) {
-    warning("No mixture columns present")
+    if (warn) {
+      warning("No mixture columns present")
+    }
     return(tbtype_results)
   }
   if (all(is_list)) {
@@ -815,7 +817,9 @@ unnest_mixtures <- function(tbtype_results) {
         unnest(all_of(columns)))
   }
   if (all(!is_list)) {
-    warning("Mixture columns already unnested")
+    if (warn) {
+      warning("Mixture columns already unnested")
+    }
     return(tbtype_results)
   }
   rlang::abort("Cannot unnest a mixture of nested and unnested mixture columns")
@@ -824,7 +828,7 @@ unnest_mixtures <- function(tbtype_results) {
 #' @export
 #' @importFrom tidyr chop
 #' @importFrom purrr map_lgl
-nest_mixtures <- function(tbtype_results) {
+nest_mixtures <- function(tbtype_results, warn=TRUE) {
   # TODO: check tbtype results
   assert_that(
     is.data.frame(tbtype_results)
@@ -843,11 +847,15 @@ nest_mixtures <- function(tbtype_results) {
   }
 
   if (length(columns)==0) {
-    warning("No mixture columns present")
+    if (warn) {
+      warning("No mixture columns present")
+    }
     return(tbtype_results)
   }
   if (all(is_list)) {
-    warning("Mixture columns already nested")
+    if (warn) {
+      warning("Mixture columns already nested")
+    }
     return(tbtype_results)
   }
   if (all(!is_list)) {
