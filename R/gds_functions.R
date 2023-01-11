@@ -176,6 +176,7 @@ snp_distance <- function(gds,
                          min_median_depth = 5L,
                          max_var_missing = 0.05,
                          max_sample_missing = 0.05,
+                         min_var_dp_sd = 3,
                          threads = min(8L, parallel::detectCores())) {
 
   assert_that(
@@ -194,69 +195,89 @@ snp_distance <- function(gds,
       seqClose(gds)
     })
   }
+  # restore filter on exit
+  flt <- SeqArray::seqGetFilter(gds)
+  on.exit({SeqArray::seqSetFilter(gds, sample.sel = flt$sample.sel, variant.sel = flt$variant.sel)})
+
   # filter gds to regions and allelic_mode
-  seqSetFilter(gds, regions)
+  if (!is.null(regions)) { seqSetFilter(gds, regions) }
   seqSetFilter(gds, SeqVarTools::isSNV(gds, biallelic=FALSE), action = 'intersect')
   seqSetFilter(gds, seqNumAllele(gds) == allelic_mode, action = 'intersect')
   assert_that(length(seqGetData(gds, 'variant.id')) > 0)
 
   # assign GT based on allelic depth
   AD0 <- seqGetData(gds, 'annotation/format/AD')$data
+  assert_that(ncol(AD0) %% allelic_mode == 0)
+
   nsam <- nrow(AD0)
   nvar <- ncol(AD0) / allelic_mode
 
   GT <- matrix(0L, nrow=nsam, ncol=nvar) %>%
     set_rownames(seqGetData(gds, 'sample.id'))
-  AD_MX <- AD0[, 1 + 4L * (seq_len(nvar) - 1L)]
+
+  AD_MX <- AD0[, 1 + allelic_mode * (seq_len(nvar) - 1L)]
   DP <- AD_MX
   GT[is.na(AD_MX)] <- NA_integer_
   for (i in 2:allelic_mode) {
-    AD_i <- AD0[, i + 4L * (seq_len(nvar) - 1L)]
+    AD_i <- AD0[, i + allelic_mode * (seq_len(nvar) - 1L)]
     DP <- DP + AD_i
     is_greater <- which(AD_i > AD_MX)
     AD_MX[is_greater] <- AD_i[is_greater]
     GT[is_greater] <- i-1L
   }
-  sam_med_dp <- apply(DP, 1, median, na.rm = TRUE)
-  rm(DP, AD0, AD_i, AD_MX)
 
+  rm(AD0, AD_i, AD_MX)
+
+  samples_exclude <- integer()
   # filter samples on median depth
-  low_dp <- which(sam_med_dp < min_median_depth)
-  if (length(low_dp)) {
-    message("Excluded ", length(low_dp), '/', nsam, ' samples due to low depth')
-    GT <- GT[-low_dp, ]
+  sam_low_dp <-
+    (apply(DP, 1, median, na.rm = TRUE) < min_median_depth) %>%
+    replace_na(FALSE)
+
+  if (sum(sam_low_dp)) {
+    message("Excluded ", sum(sam_low_dp), '/', nsam, ' samples due to low depth')
+    samples_exclude <- which(sam_low_dp)
+  }
+
+  # filter samples by missingness
+  sam_high_miss <- (rowSums(is.na(GT)) / nvar > max_sample_missing) & (!sam_low_dp)
+
+  if (sum(sam_high_miss)) {
+    message("Excluded ", sum(sam_high_miss), '/', nsam, ' samples due to high missingness')
+    samples_exclude <- union(samples_exclude, which(sam_high_miss))
+  }
+
+  if (length(samples_exclude)) {
+    GT <- GT[-samples_exclude,]
+    DP <- DP[-samples_exclude,]
     nsam <- nrow(GT)
   }
 
-  # filter variants or samples first, maximizing remaining data
-  var_miss_0 <- colSums(is.na(GT)) / nsam
-  sam_miss_0 <- rowSums(is.na(GT)) / nvar
-  var_set_0 <- which(var_miss_0 <= max_var_missing)
-  sam_set_0 <- which(sam_miss_0 <= max_sample_missing)
+  variants_exclude <- integer()
 
-  var_miss_1 <- colSums(is.na(GT[sam_set_0, ])) / length(sam_set_0)
-  sam_miss_1 <- rowSums(is.na(GT[, var_set_0])) / length(var_set_0)
-  var_set_1 <- which(var_miss_1 <= max_var_missing)
-  sam_set_1 <- which(sam_miss_1 <= max_sample_missing)
+  # filter variants by depth
+  var_med_dp <- apply(DP, 2, median, na.rm=TRUE)
+  min_var_med_dp <- mean(var_med_dp) - min_var_dp_sd*sd(var_med_dp)
+  var_low_dp <- (var_med_dp < min_var_med_dp) %>% replace_na(FALSE)
 
-  n_v0_s1 <- length(var_set_0) * length(sam_set_1)
-  n_v1_s0 <- length(var_set_1) * length(sam_set_0)
-
-  if (n_v0_s1 >= n_v1_s0) {
-    var_set <-  var_set_0
-    sam_set <- sam_set_1
-  } else {
-    var_set <-  var_set_1
-    sam_set <- sam_set_0
-  }
-  if (length(sam_set) < nsam) {
-    message("Excluded ", nsam - length(sam_set), '/', nsam, ' samples due to high missingness')
-  }
-  if (length(var_set) < nvar) {
-    message("Excluded ", nvar - length(var_set), '/', nvar, ' variants due to high missingness')
+  if (sum(var_low_dp)) {
+    message("Excluded ", sum(var_low_dp), '/', nvar, ' variants due to low depth')
+    variants_exclude <- which(var_low_dp)
   }
 
-  GT <- GT[sam_set, var_set]
+  # filter variants by missingness
+  var_high_miss <- (colSums(is.na(GT)) / nsam > max_var_missing) & (!var_low_dp)
+
+  if (sum(var_high_miss)) {
+    message("Excluded ", sum(var_high_miss), '/', nvar, ' variants due to high missingness')
+    variants_exclude <- union(variants_exclude, which(var_high_miss))
+  }
+
+  if (length(variants_exclude)) {
+    GT <- GT[, -variants_exclude]
+    DP <- DP[, -variants_exclude]
+    nvar <- ncol(GT)
+  }
 
   pdist(GT, threads = threads)
 
