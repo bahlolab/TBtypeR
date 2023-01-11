@@ -53,7 +53,7 @@ assign_dr <- function(tbtype_results, gds,
     nest(drug_ac = c(-sample_id)) %>%
     inner_join(tbtype_results %>%
                  filter(!is.na(error_rate)) %>%
-                 unnest_mixtures() %>%
+                 unnest_mixtures(warn=FALSE) %>%
                  select(sample_id, n_phy, error_rate, mix_phylotype, mix_prop) %>%
                  nest(type_data = -c(sample_id, n_phy)),
                by = "sample_id"
@@ -114,12 +114,12 @@ assign_dr <- function(tbtype_results, gds,
 
   ret <-
     tbtype_results %>%
-    unnest_mixtures() %>%
+    unnest_mixtures(warn=FALSE) %>%
     left_join(dr_res, by = c('sample_id','n_phy', 'mix_phylotype')) %>%
     mutate(mix_drug_res = map(mix_drug_res, function(x) {
       `if`(is.null(x), tibble(drug = NA_character_, status = NA_character_), x)
     })) %>%
-    nest_mixtures() %>%
+    nest_mixtures(warn=FALSE) %>%
     mutate(drugs_resistant = map(mix_drug_res, function(x) {
       bind_rows(x) %>% pull(drug) %>% unique() %>% na.omit() %>% sort()
     }))
