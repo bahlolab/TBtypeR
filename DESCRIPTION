@@ -36,7 +36,8 @@ Imports:
     rtracklayer,
     parallelDist,
     RcppXPtrUtils,
-    RcppArmadillo
+    RcppArmadillo,
+    ggfittext
 RoxygenNote: 7.2.1
 Suggests: 
     testthat (>= 2.1.0)

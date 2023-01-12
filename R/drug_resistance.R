@@ -24,6 +24,16 @@ assign_dr <- function(tbtype_results, gds,
     is_scalar_proportion(min_posterior)
   )
 
+  drug_set <-
+    dr_panel %>%
+    select(drugs) %>%
+    distinct() %>%
+    separate_rows(drugs, sep = ';') %>%
+    distinct() %>%
+    pull()
+
+  status_levels <- c('SENS', 'MIX-HET', 'HET-RES', 'HOM-RES')
+
   if (!is_open_gds(gds)) {
     message("Opening gds file")
     gds <- seqOpen(gds$filename, allow.duplicate = T)
@@ -84,24 +94,24 @@ assign_dr <- function(tbtype_results, gds,
         slice(which.max(binom_prob)) %>%
         select(-phy_set, -mix_prop, -p) %>%
         mutate(status = case_when(
-          binom_prob >= (1-conf_int) & posterior >= min_posterior ~ 'homoresistant',
-          mix_n == 1                                              ~ 'heteroresistant',
-          TRUE                                                    ~ 'uncertain'
+          binom_prob >= (1-conf_int) & posterior >= min_posterior ~ 'HOM-RES',
+          mix_n == 1                                              ~ 'HET-RES',
+          TRUE                                                    ~ 'MIX-HET'
         )) %>%
         # remove cases where error is most likely
-        filter(!(status == 'homoresistant' &&
+        filter(!(status == 'HOM-RES' &&
                    lengths(mix_phylotype) == 1 &&
                    is.na(mix_phylotype[[1]]))) %>%
         ungroup() %>%
-        mutate(mix_phylotype = if_else(status == "uncertain",
+        mutate(mix_phylotype = if_else(status == "MIX-HET",
                                        list(type_data$mix_phylotype),
                                        as.list(mix_phylotype)),
-               binom_prob = if_else(status == "uncertain", NA_real_, binom_prob),
-               posterior  = if_else(status == "uncertain", NA_real_, posterior))
+               binom_prob = if_else(status == "MIX-HET", NA_real_, binom_prob),
+               posterior  = if_else(status == "MIX-HET", NA_real_, posterior))
     })) %>%
     select(sample_id, n_phy, drug_assign) %>%
     unnest(drug_assign) %>%
-    mutate(status = ordered(status, c('homoresistant', 'heteroresistant', 'uncertain'))) %>%
+    # mutate(status = ordered(status, c('homoresistant', 'heteroresistant', 'uncertain'))) %>%
     unnest(mix_phylotype) %>%
     separate_rows(drugs, sep = ';') %>%
     rename(drug = drugs) %>%
@@ -117,7 +127,13 @@ assign_dr <- function(tbtype_results, gds,
     unnest_mixtures(warn=FALSE) %>%
     left_join(dr_res, by = c('sample_id','n_phy', 'mix_phylotype')) %>%
     mutate(mix_drug_res = map(mix_drug_res, function(x) {
-      `if`(is.null(x), tibble(drug = NA_character_, status = NA_character_), x)
+      `if`(is.null(x),
+           expand_grid(drug = drug_set,
+                       status = ordered('SENS', status_levels),
+                       variant_data = list(NULL)),
+           complete(x, drug = drug_set) %>%
+             mutate(status = if_else(is.na(status), 'SENS', status) %>%
+                      ordered(status_levels)))
     })) %>%
     nest_mixtures(warn=FALSE) %>%
     mutate(drugs_resistant = map(mix_drug_res, function(x) {
