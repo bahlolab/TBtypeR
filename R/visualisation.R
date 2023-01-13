@@ -1,9 +1,39 @@
 
 #' @export
+plot_phylotype_distribution <- function(tbt_res,
+                                        phy_pal = NULL) {
+
+  if (is.null(phy_pal)) {
+    phy_pal <- tbt_palette(unique(unlist(tbt_res$phylotype)), sort=T)
+  }
+
+  tbt_res %>%
+    unnest_mixtures(warn=F) %>%
+    select(phylotype = mix_phylotype, mix_prop) %>%
+    group_by(phylotype) %>%
+    summarise(mix_prop = sum(mix_prop, na.rm = T)) %>%
+    arrange(mix_prop) %>%
+    mutate(phylotype = forcats::as_factor(phylotype)) %>%
+    ggplot(aes(phylotype, mix_prop, fill = phylotype)) +
+    geom_col() +
+    scale_fill_manual(values = phy_pal) +
+    coord_flip() +
+    geom_text(aes(label = phylotype, y = 0, hjust = 0), nudge_y = 0.02) +
+    guides(fill = 'none') +
+    theme(axis.title.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          strip.text.y.left = element_text(angle = 0),
+          panel.grid.minor.y = element_blank()) +
+    labs(y = 'total')
+}
+
+#' @export
 plot_phylotype_heatmap <- function(tbt_res, snp_dist,
+                                   phy_pal = NULL,
                                    log_scale = FALSE) {
   assert_that(
-    is.data.frame(tbtype_results),
+    is.data.frame(tbt_res),
     inherits(snp_dist, 'dist'),
     is_bool(log_scale)
   )
@@ -21,13 +51,15 @@ plot_phylotype_heatmap <- function(tbt_res, snp_dist,
   clustering <- hclust(as.dist(dist_matrix), method = 'average')
   levels <- with(clustering, labels[order])
 
+
+
   treep <-
     ggtree::ggtree(clustering) +
     coord_flip() +
     scale_x_reverse() +
     theme(plot.margin = unit(c(0,0,0,0), units = "lines" ))
 
-  phyp <-
+  phyp_data <-
     tbt_res %>%
     unnest_mixtures(warn = FALSE) %>%
     filter(sample_id %in% levels) %>%
@@ -39,20 +71,21 @@ plot_phylotype_heatmap <- function(tbt_res, snp_dist,
     mutate(rank = mean(rank)) %>%
     ungroup() %>%
     arrange(rank, sample_id) %>%
-    mutate(phylotype = as.factor(phylotype)) %>%
-    (function(x) {
-      pal <-
-        levels(x$phylotype) %>%
-        (function(y) setNames(hue_tonal(length(y), h = c(10, 350)), y))
-      ggplot(x) +
-        geom_col(aes(sample_id, mix_prop, fill = phylotype)) +
-        theme(axis.title.y = element_blank(),
-              axis.title.x = element_blank(),
-              axis.ticks.x = element_blank(),
-              axis.text.x = element_blank(),
-              plot.margin = unit(c(0,0,0,0), units = "lines" )) +
-        scale_fill_manual(values = pal)
-    })
+    mutate(phylotype = as.factor(phylotype))
+
+  if (is.null(phy_pal)) {
+    phy_pal <- tbt_palette(levels(phyp_data$phylotype), sort=F)
+  }
+
+  phyp <-
+    ggplot(phyp_data) +
+    geom_col(aes(sample_id, mix_prop, fill = phylotype)) +
+    theme(axis.title.y = element_blank(),
+          axis.title.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.x = element_blank(),
+          plot.margin = unit(c(0,0,0,0), units = "lines" )) +
+    scale_fill_manual(values = phy_pal)
 
   hm <-
     dist_matrix %>%
