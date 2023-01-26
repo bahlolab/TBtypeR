@@ -5,7 +5,7 @@
 #' @importFrom purrr map_lgl
 #' @importFrom SeqArray seqOpen seqClose
 assign_dr <- function(tbtype_results, gds,
-                      dr_panel = TBtyper::who_dr_panel,
+                      dr_panel = TBtypeR::who_dr_panel,
                       verbose = FALSE,
                       min_allele_count = 3,
                       min_allele_freq = 0.01,

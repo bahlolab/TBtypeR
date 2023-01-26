@@ -6,7 +6,7 @@
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
 tbtype <- function(gds,
-                   panel = TBtyper::tbt_panel,
+                   panel = TBtypeR::tbt_panel,
                    max_phylotypes = 5L,
                    min_mix_prop = 0.001,
                    min_median_depth = 5L,
@@ -765,7 +765,7 @@ filter_tbtype <- function(tbtype_results,
   )
 
   tbtype_results %>%
-    nest_mixtures() %>%
+    nest_mixtures(warn = FALSE) %>%
     filter(lengths(mix_prop) > 0) %>%
     filter(
       map_lgl(mix_prop, ~ min(.) >= min_mix_prop),

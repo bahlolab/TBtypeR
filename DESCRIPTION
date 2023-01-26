@@ -1,4 +1,4 @@
-Package: TBtyper
+Package: TBtypeR
 Title: Mycobacterium Tuberculosis Phylotyping from WGS SNP data
 Version: 0.0.1
 Authors@R: 
@@ -37,8 +37,11 @@ Imports:
     parallelDist,
     RcppXPtrUtils,
     RcppArmadillo,
-    ggfittext
-RoxygenNote: 7.2.1
+    ggfittext,
+    phangorn,
+    ggtree,
+    readr
+RoxygenNote: 7.2.2
 Suggests: 
     testthat (>= 2.1.0)
 Depends: 

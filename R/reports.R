@@ -15,7 +15,7 @@ batch_report <- function(tbt_dr_res, snp_dist,
   )
 
   rmd_file <- system.file(file.path("Rmd", "TBtypeR_batch_report.Rmd"),
-                          package = "TBtyper", mustWork = TRUE)
+                          package = "TBtypeR", mustWork = TRUE)
 
   tmp_dir <- tempdir(check = T)
 

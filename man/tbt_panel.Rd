@@ -3,7 +3,7 @@
 \docType{data}
 \name{tbt_panel}
 \alias{tbt_panel}
-\title{TBtyper SNP phylotype panel.}
+\title{TBtypeR SNP phylotype panel.}
 \format{
 A data frame with 9,687 rows and 8 columns:
 \describe{
@@ -30,6 +30,6 @@ Shuaib et al. 2022: \url{https://doi.org/10.3390/genes13060990}
 tbt_panel
 }
 \description{
-TBtyper SNP phylotype panel.
+TBtypeR SNP phylotype panel.
 }
 \keyword{datasets}

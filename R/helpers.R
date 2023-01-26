@@ -314,3 +314,4 @@ pdist <- function(mat, threads = 1) {
   parallelDist::parDist(mat, method="custom", func = dist_func_ptr, threads = threads)
 }
 
+

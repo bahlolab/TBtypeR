@@ -1,4 +1,4 @@
-#' TBtyper SNP phylotype panel.
+#' TBtypeR SNP phylotype panel.
 #'
 #' @format A data frame with 9,687 rows and 8 columns:
 #' \describe{
