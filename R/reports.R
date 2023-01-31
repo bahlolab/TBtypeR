@@ -1,21 +1,26 @@
 
 #' @export
-batch_report <- function(tbt_dr_res, snp_dist,
+batch_report <- function(tbt_res, snp_dist,
                          sample_meta = NULL,
                          report_title = 'TBtypeR Batch Report',
                          report_filename = NULL,
                          browse = TRUE) {
 
   assert_that(
-    is.data.frame(tbt_dr_res),
+    is.data.frame(tbt_res),
     inherits(snp_dist, 'dist'),
     (is.null(sample_meta) || is.data.frame(sample_meta)),
     is_scalar_character(report_title),
     is.null(report_filename) || is_scalar_character(report_filename)
   )
 
-  rmd_file <- system.file(file.path("Rmd", "TBtypeR_batch_report.Rmd"),
-                          package = "TBtypeR", mustWork = TRUE)
+  if ('mix_drug_res' %in% colnames(tbt_res)) {
+    rmd_file <- system.file(file.path("Rmd", "TBtypeR_batch_report_DR.Rmd"),
+                            package = "TBtypeR", mustWork = TRUE)
+  } else {
+    rmd_file <- system.file(file.path("Rmd", "TBtypeR_batch_report.Rmd"),
+                            package = "TBtypeR", mustWork = TRUE)
+  }
 
   tmp_dir <- tempdir(check = T)
 
@@ -24,7 +29,7 @@ batch_report <- function(tbt_dr_res, snp_dist,
   rmd_file <- file.path(tmp_dir, basename(rmd_file))
 
   rmd_env <- list2env(
-    list(tbt_dr_res = tbt_dr_res,
+    list(tbt_res = tbt_res,
          snp_dist = snp_dist,
          sample_meta = sample_meta,
          report_title = report_title),

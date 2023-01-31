@@ -108,19 +108,27 @@ assign_dr <- function(tbtype_results, gds,
                                        as.list(mix_phylotype)),
                binom_prob = if_else(status == "MIX-HET", NA_real_, binom_prob),
                posterior  = if_else(status == "MIX-HET", NA_real_, posterior))
-    })) %>%
-    select(sample_id, n_phy, drug_assign) %>%
-    unnest(drug_assign) %>%
-    # mutate(status = ordered(status, c('homoresistant', 'heteroresistant', 'uncertain'))) %>%
-    unnest(mix_phylotype) %>%
-    separate_rows(drugs, sep = ';') %>%
-    rename(drug = drugs) %>%
-    mutate(variant_status = status) %>%
-    group_by(sample_id, n_phy, mix_phylotype, drug) %>%
-    mutate(status = min(status)) %>%
-    ungroup() %>%
-    nest(variant_data = -c(sample_id, n_phy, mix_phylotype, drug, status)) %>%
-    nest(mix_drug_res = -c(sample_id, n_phy, mix_phylotype))
+    }))
+
+  if (nrow(dr_res)) {
+    dr_res <- dr_res %>%
+      select(sample_id, n_phy, drug_assign) %>%
+      unnest(drug_assign) %>%
+      unnest(mix_phylotype) %>%
+      separate_rows(drugs, sep = ';') %>%
+      rename(drug = drugs) %>%
+      mutate(variant_status = status) %>%
+      group_by(sample_id, n_phy, mix_phylotype, drug) %>%
+      mutate(status = min(status)) %>%
+      ungroup() %>%
+      nest(variant_data = -c(sample_id, n_phy, mix_phylotype, drug, status)) %>%
+      nest(mix_drug_res = -c(sample_id, n_phy, mix_phylotype))
+  } else {
+    dr_res <- tibble(sample_id = character(),
+                     n_phy = double(),
+                     mix_phylotype = character(),
+                     mix_drug_res = list())
+  }
 
   ret <-
     tbtype_results %>%
@@ -130,7 +138,15 @@ assign_dr <- function(tbtype_results, gds,
       `if`(is.null(x),
            expand_grid(drug = drug_set,
                        status = ordered('SENS', status_levels),
-                       variant_data = list(NULL)),
+                       variant_data = list(tibble(
+                         vid            = character(),
+                         alt_ac         = integer(),
+                         depth          = integer(),
+                         baf            = double(),
+                         binom_prob     = double(),
+                         posterior      = double(),
+                         variant_status = character(),
+                       ))),
            complete(x, drug = drug_set) %>%
              mutate(status = if_else(is.na(status), 'SENS', status) %>%
                       ordered(status_levels)))
