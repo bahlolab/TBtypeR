@@ -153,7 +153,12 @@ assign_dr <- function(tbtype_results, gds,
     })) %>%
     nest_mixtures(warn=FALSE) %>%
     mutate(drugs_resistant = map(mix_drug_res, function(x) {
-      bind_rows(x) %>% pull(drug) %>% unique() %>% na.omit() %>% sort()
+      bind_rows(x) %>%
+        filter(status != 'SENS') %>%
+        pull(drug) %>%
+        unique() %>%
+        na.omit() %>%
+        sort()
     }))
 
   return(ret)
