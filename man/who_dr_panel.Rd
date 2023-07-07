@@ -5,7 +5,7 @@
 \alias{who_dr_panel}
 \title{Panel of TB drug resistance polymorphisms derived from the WHO Mutation Catalogue}
 \format{
-A data frame with 1,140 rows and 6 columns:
+A data frame with 1,145 rows and 6 columns:
 \describe{
   \item{chrom}{H37Rv chromosome}
   \item{pos}{H37Rv genomic position}
