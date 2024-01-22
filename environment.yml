@@ -12,17 +12,16 @@ dependencies:
     - r-rcpparmadillo
     - r-ggfittext
     - r-furrr
-    - r-tidytree 
+    - r-tidytree
     - r-ape
     - r-pracma
     - r-assertthat
     - r-paralleldist
-    - r-rcppxptrutils
     - r-phangorn
     - r-dt
     - r-digest
     - r-forcats
-    - r-memoise 
+    - r-memoise
     - bioconductor-biostrings
     - bioconductor-bsgenome
     - bioconductor-ggtree
