@@ -123,9 +123,8 @@ mix_model <- function(gts, mix_prop) {
 }
 
 #' @importFrom phangorn Children
-#' @importFrom treeio parent
 parent_and_children <- function(phylo, node) {
-  unlist(c(parent(phylo, node), unlist(Children(phylo, node))))
+  unlist(c(treeio::parent(phylo, node), unlist(Children(phylo, node))))
 }
 
 node_dist_range <- function(node, phylo, node_dist, max_dist,
@@ -222,7 +221,6 @@ insert_cols <- function(m1, m2, at) {
 }
 
 
-#' @importFrom treeio parent rootnode
 #' @importFrom phangorn Ancestors Descendants Children
 #' @importFrom purrr map
 exclusions <- function(nodes,
@@ -238,11 +236,11 @@ exclusions <- function(nodes,
                        exclude_root = TRUE) {
   exclude <-
     c(
-      `if`(exclude_parent, parent(phylo, nodes), integer()),
+      `if`(exclude_parent, treeio::parent(phylo, nodes), integer()),
       `if`(exclude_child, unlist(Children(phylo, nodes)), integer()),
       `if`(exclude_ancestor, unlist(Ancestors(phylo, nodes)), integer()),
       `if`(exclude_descendant, unlist(Descendants(phylo, nodes)), integer()),
-      `if`(exclude_root, rootnode(phylo), integer()),
+      `if`(exclude_root, treeio::rootnode(phylo), integer()),
       `if`(exclude_self, nodes, integer()),
       `if`(exclude_inner, inner_nodes(phylo), integer()),
       `if`(

@@ -1,7 +1,6 @@
 
 #' @export
 #' @importFrom rlang is_integer is_scalar_integerish is_bool is_scalar_character
-#' @importFrom treeio Nnode2
 #' @importFrom magrittr set_colnames set_rownames
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
@@ -9,7 +8,7 @@ tbtype <- function(gds,
                    panel = TBtypeR::tbt_panel,
                    max_phylotypes = 5L,
                    min_mix_prop = 0.001,
-                   min_median_depth = 5L,
+                   min_median_depth = 10L,
                    min_depth_fold = 5,
                    max_depth = 200L,
                    max_depth_fold = 2,
@@ -61,7 +60,7 @@ tbtype <- function(gds,
 
   # subset phylotypes to those that can be distinguished over input genotypes
   phylo_sub <- collapse_phylotypes(phylo, geno_sub)
-  message("Note: using ", Nnode2(phylo_sub), " of ", Nnode2(phylo), " phylotypes")
+  message("Note: using ", treeio::Nnode2(phylo_sub), " of ", treeio::Nnode2(phylo), " phylotypes")
 
   # transpose genotypes
   t_geno <- t(geno_sub)[, phylo_labels(phylo_sub), drop = F]

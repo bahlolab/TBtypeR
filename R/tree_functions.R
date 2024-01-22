@@ -1,23 +1,21 @@
 # TODO
 #   tidy functions, add imports, remove junk
 
-#' @importFrom treeio isTip Nnode2
 tips <- function(phylo) {
-  seq_len(Nnode2(phylo)) %>%
+  seq_len(treeio::Nnode2(phylo)) %>%
     {
-      .[isTip(phylo, .)]
+      .[treeio::isTip(phylo, .)]
     }
 }
 
 phylo_labels <- function(phylo) {
-  node_to_label(phylo, seq_len(Nnode2(phylo)))
+  node_to_label(phylo, seq_len(treeio::Nnode2(phylo)))
 }
 
-#' @importFrom treeio isTip Nnode2
 inner_nodes <- function(phylo) {
-  seq_len(Nnode2(phylo)) %>%
+  seq_len(treeio::Nnode2(phylo)) %>%
     {
-      .[!isTip(phylo, .)]
+      .[!treeio::isTip(phylo, .)]
     }
 }
 
@@ -197,7 +195,7 @@ label_phylo <- function(phylo,
     is_string(sep)
   )
 
-  rn <- tidytree::rootnode(phylo)
+  rn <- treeio::rootnode(phylo)
 
   if (!rn %in% node_labels) {
     node_labels <- c(magrittr::set_names(rn, root_label), node_labels)
@@ -300,7 +298,7 @@ parent_lab_by_lab <- function(phylo, node_lab) {
   as_tibble(phylo) %>%
     (function(tree_tbl) {
       filter(tree_tbl, label %in% node_lab) %>%
-        mutate(parents = map_chr(node, function(nd) tree_tbl$label[match(parent(phylo, nd), tree_tbl$node)])) %>%
+        mutate(parents = map_chr(node, function(nd) tree_tbl$label[match(treeio::parent(phylo, nd), tree_tbl$node)])) %>%
         with(set_names(parents, label))
     })
 }

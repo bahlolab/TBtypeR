@@ -52,7 +52,8 @@ panel_to_geno <- function(panel) {
   geno <- rbind(
     geno,
     tidytree::as_tibble(phylo) %>%
-      filter(parent == rootnode(phylo), node != parent) %>%
+      as_tibble() %>%
+      filter(parent == treeio::rootnode(phylo), node != parent) %>%
       with(colMeans(geno[label, , drop = F])) %>%
       (function(x) if_else(x > 0.5, 1L, 0L)) %>%
       matrix(nrow = 1, dimnames = list("root", NULL))

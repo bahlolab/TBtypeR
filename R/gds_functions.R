@@ -164,7 +164,7 @@ is_gds <- function(x) {
 }
 
 is_open_gds <- function(x) {
-  is_gds(x) && !xptr::is_null_xptr(x$ptr)
+  is_gds(x) && !identical(gds$ptr, new("externalptr"))
 }
 
 #' @export

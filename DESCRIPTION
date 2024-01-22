@@ -31,7 +31,6 @@ Imports:
     IRanges,
     pracma,
     assertthat,
-    xptr,
     Rsamtools,
     rtracklayer,
     parallelDist,
@@ -40,8 +39,19 @@ Imports:
     ggfittext,
     phangorn,
     ggtree,
-    readr
-RoxygenNote: 7.2.2
+    readr,
+    SeqArray,
+    tibble,
+    BSgenome,
+    Biostrings,
+    DT,
+    cowplot,
+    digest,
+    forcats,
+    knitr,
+    memoise,
+    scales
+RoxygenNote: 7.2.3
 Suggests: 
     testthat (>= 2.1.0)
 Depends: 
