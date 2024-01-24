@@ -19,7 +19,7 @@ RUN micromamba install -y -n base -f /tmp/env.yaml && \
 
 # Install TBtypeR R package
 RUN /opt/conda/bin/R --slave --vanilla -e \
-    "devtools::install(pkg = '.', force = TRUE, upgrade = 'never')"
+    "devtools::install(pkg = '/', force = TRUE, upgrade = 'never')"
 
 ENV PATH="/opt/conda/bin:${PATH}" \
     TZ=Etc/UTC
