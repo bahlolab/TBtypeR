@@ -1,0 +1,400 @@
+---
+title: "TB Mixture Detection - in silico Benchmark"
+output: 'html_document'
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+source('2.functions.R')
+```
+
+```{r import_data}
+in_silico_dataset <- 
+  read_rds('1.work/in_silico_dataset.rds') %>% 
+  mutate(across(c(prop_2, prop_3), \(x) replace_na(x, 0)))
+
+bench_res_raw <-
+  readRDS('./1.work/bench_res_raw.rds') %>% 
+  mutate(method = str_replace(method, 'quanttb', 'QuantTB'))
+  
+## TODO - resolve TBProfiler errors
+bench_res_smry <-
+  bench_res_raw %>% 
+  group_by(method, sample) %>% 
+  summarise(
+    mix_n = n(),
+    is_mixed = mix_n > 1,
+    minor_prop = 1 - suppressWarnings(max(proportion, na.rm = T)),
+    minor_prop = `if`(is.finite(minor_prop), minor_prop, 0),
+    .groups = 'drop'
+  )
+
+get_prop <- \(x, i) {
+  x <- na.omit(x)
+  if (length(x) < i) { return(0) }
+  sort(x, T)[i]
+}
+
+bench_res_smry_trio <-
+  bench_res_raw %>% 
+  group_by(method, sample) %>% 
+  summarise(
+    mix_n = min(n(), 3L),
+    prop_1 = get_prop(proportion, 1),
+    prop_2 = get_prop(proportion, 2),
+    prop_3 = get_prop(proportion, 3),
+    .groups = 'drop'
+  ) 
+```
+
+```{r comparison, echo=FALSE}
+bimix_tbl <-
+  in_silico_dataset %>% 
+  filter(is.na(sample_3)) %>% 
+  select(id, depth, minor_prop = prop_2, distance = dist_1_2) %>% 
+  mutate(idn = str_extract(id, '\\d+')) %>% 
+  (function(x) 
+    x %>% 
+     filter(str_starts(id, 'PAIR')) %>% 
+     mutate(mpg = minor_prop) %>% 
+     (function(y) 
+       y %>% 
+        bind_rows(
+          x %>% 
+            filter(str_starts(id, 'SING')) %>% 
+            select(-distance) %>% 
+            left_join(select(y, idn, mpg, distance),
+                      by = "idn")
+        )
+     )
+  ) %>% 
+  select(-idn) %>% 
+  mutate(is_mixed = minor_prop > 0) %>% 
+  inner_join(
+    bench_res_smry %>% rename(id = sample),
+    by = 'id',
+    suffix = c('', '_pred')
+  ) %>% 
+  mutate(minor_percent = 100 * minor_prop,
+         minor_percent_pred = 100 * minor_prop_pred)
+```
+
+
+```{r bimix_orverall}
+# summarise over all data points
+bimix_tbl_pooled <-
+  bimix_tbl %>%
+  group_by(method) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE =  1-MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  mutate(rank = ordered(rank(desc(nMCC)))) %>% 
+  arrange(rank) %>% 
+  mutate(method = as.factor(method))
+
+bimix_tbl_pooled %>% 
+  select(-accuracy, -rank) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+               names_to = 'measure') %>% 
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
+  group_by(measure) %>% 
+  mutate(rank = rank(desc(value), ties.method = 'min')) %>% 
+  ungroup() %>% 
+  mutate(rank = ordered(rank)) %>% 
+  ggplot(aes(method, value, fill=rank)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_viridis_d(direction = -1, begin = 0.15, end = 0.85) +
+  theme(axis.title = element_blank()) +
+  facet_wrap(~measure, nrow = 2)  +
+  theme(legend.position = 'bottom')
+```
+
+
+```{r scatterboxplots}
+breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
+
+bimix_tbl %>% 
+  filter(is_mixed) %>% 
+  left_join(bimix_tbl_pooled %>% 
+              transmute(method = method,
+                        label = str_c(method,
+                                      '\nMAE=', format(round(1-MAE, 2)),
+                                      '\nrecall=', format(round(recall, 2)))),
+            by = 'method') %>% 
+  filter(!is.na(minor_percent_pred)) %>% 
+  ggplot(aes(minor_percent, minor_percent_pred, group = minor_percent)) +
+  geom_abline(col = 'red') +
+  geom_boxplot(fill = NA, outlier.alpha = 0.5) +
+  scale_x_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
+  scale_y_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
+  theme(
+    # axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
+  coord_fixed() +
+  facet_wrap(~label, nrow = 1)
+
+```
+
+```{r by_depth}
+by_depth <-
+  bimix_tbl %>% 
+  group_by(method, depth) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 1-MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+               names_to = 'measure') %>% 
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
+  mutate(method = factor(method, levels(bimix_tbl_pooled$method)))
+
+
+by_depth %>% 
+  ggplot(aes(depth, value, colour = method, shape=method)) +
+  geom_line() + 
+  geom_point() +
+  theme(legend.position = 'bottom') +
+  facet_wrap(~measure,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  scale_shape_manual(values = c(8:9, 15:18)) +
+  ylab('value') +
+  ggtitle('by depth')
+
+```
+
+
+```{r by_mp}
+by_mp <-
+  bimix_tbl %>% 
+  mutate(minor_percent = mpg * 100) %>% 
+  group_by(method, minor_percent) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 1-MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+               names_to = 'measure') %>% 
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
+  mutate(method = factor(method, levels(bimix_tbl_pooled$method)))
+
+
+by_mp %>% 
+  ggplot(aes(minor_percent, value, colour = method, shape=method)) +
+  geom_line() + 
+  geom_point() +
+  theme(legend.position = 'bottom') +
+  facet_wrap(~measure,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  scale_shape_manual(values = c(8:9, 15:18)) +
+  scale_x_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
+  ylab('value') +
+  ggtitle('by minor clone percentage')
+
+```
+
+```{r}
+
+by_dist_bin <-
+  bimix_tbl %>% 
+  mutate(dist_bin = cume_dist(distance) %/% (1/5) + 1) %>% 
+  group_by(method, dist_bin) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 1-MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+               names_to = 'measure') %>% 
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
+  mutate(method = factor(method, levels(bimix_tbl_pooled$method)))
+
+by_dist_bin %>% 
+  ggplot(aes(dist_bin, value, colour = method, shape=method)) +
+  geom_line() + 
+  # geom_line(data = filter(by_dist_bin,
+  #                         measure %in% c('specificity', 'precision'),
+  #                         method == 'SplitStrains'),
+  #           linetype = 'dashed') +
+  geom_point() +
+  # geom_point(data = filter(by_dist_bin,
+  #                          measure %in% c('specificity', 'precision'),
+  #                          method == 'SplitStrains',
+  #                          dist_bin %in% c(2,4))) +
+  theme(legend.position = 'bottom') +
+  facet_wrap(~measure,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  scale_shape_manual(values = c(8:9, 15:18)) +
+  ylab('value') +
+  ggtitle('by distance bin')
+```
+
+```{r trios_1}
+
+trimix_tbl <-
+  in_silico_dataset %>% 
+  mutate(idn = str_extract(id, '\\d+')) %>% 
+  (function(x) {
+    ids <- filter(x, str_starts(id, 'TRIO')) %>% pull(idn)
+    filter(x, idn %in% ids)
+  }) %>% 
+  mutate(mix_n = if_else(prop_2 == 0, 1L, if_else(prop_3 == 0, 2L, 3L))) %>% 
+  group_by(idn) %>% 
+  mutate(across(starts_with(c('dist_', 'sample_')), \(x) first(na.omit(x)))) %>% 
+  ungroup() %>% 
+  inner_join(
+    bench_res_smry_trio %>% rename(id = sample),
+    by = 'id',
+    suffix = c('', '_pred')
+  ) %>% 
+  mutate(across(starts_with('mix_n'), \(x) ordered(x)))
+
+
+trimix_tbl_measures_pooled <-
+  trimix_tbl %>%
+  filter(mix_n != 2) %>% 
+  group_by(method) %>%
+  summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
+            MAE = 1- MAE(c(prop_2, prop_3),
+                           c(prop_2_pred, prop_3_pred)),
+            .groups = 'drop')  %>%
+  unnest(measures)
+
+trimix_tbl_measures_pooled_123 <-
+  trimix_tbl %>%
+  group_by(method) %>%
+  summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
+            MAE = 1- MAE(c(prop_2, prop_3),
+                           c(prop_2_pred, prop_3_pred)),
+            .groups = 'drop')  %>%
+  unnest(measures)
+
+trimix_tbl_measures <-
+  trimix_tbl %>%
+  filter(mix_n != 2) %>% 
+  group_by(method, depth) %>%
+  summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
+            MAE = 1-MAE(prop_3, prop_3_pred),
+            .groups = 'drop')  %>%
+  unnest(measures)
+
+```
+
+```{r}
+trimix_tbl %>% 
+  left_join(
+    trimix_tbl_measures_pooled_123 %>% 
+      select(method, accuracy) 
+  ) %>%
+  # mutate(label = method) %>%
+  mutate(label = str_c(method, ': accuracy=', format(round(accuracy, 2)))) %>%
+  arrange(desc(accuracy)) %>% 
+  mutate(label = as_factor(label)) %>% 
+  ggplot(aes(mix_n, fill = mix_n_pred)) +
+  geom_bar() +
+  facet_wrap(~label) +
+  coord_flip() +
+  ggtitle('Accuracy when identifying mixtures of 1-3 strains')
+
+```
+
+```{r}
+
+```
+
+```{r trios_1a}
+
+
+trio_dataset <-
+  in_silico_dataset %>% 
+  mutate(idn = str_extract(id, '\\d+')) %>% 
+  (function(x) {
+    ids <- filter(x, str_starts(id, 'TRIO')) %>% pull(idn)
+    filter(x, idn %in% ids)
+  }) %>% 
+  mutate(mix_n = if_else(prop_2 == 0, 1L, if_else(prop_3 == 0, 2L, 3L)))
+
+
+trio_status <-
+  in_silico_results %>% 
+  semi_join(trio_dataset, by = c('sample' = 'id')) %>% 
+  count(method, sample, name = 'mix_n_pred') %>% 
+  left_join(trio_dataset %>% select(sample=id, mix_n))  %>% 
+  mutate(status = case_when(mix_n_pred < mix_n ~ 'too few',
+                            mix_n_pred > mix_n ~ 'too many',
+                            TRUE               ~ 'correct') %>% 
+           ordered(c('too few','too many', 'correct')),
+         delta = as.factor(mix_n_pred - mix_n),
+         mix_n_pred = ordered(mix_n_pred))
+
+trio_measures <-
+  trio_status %>% 
+  filter(mix_n != 2) %>% 
+  group_by(method) %>% 
+  summarise(measures = binary_measures(real = mix_n == 3,
+                                       predicted = mix_n_pred == 3))
+
+trio_status %>% 
+  left_join(trio_measures %>% 
+              transmute(method = method,
+                        accuracy = measures$accuracy)) %>% 
+  mutate(label = str_c(method, ': accuracy=', format(round(accuracy, 2)))) %>% 
+  ggplot(aes(mix_n, fill = mix_n_pred)) +
+  geom_bar() +
+  facet_wrap(~label)
+```
+
+
+```{r trios_2}
+trio_vs <-
+  trio_dataset  %>% 
+  filter(str_starts(id, 'TRIO')) %>% 
+  select(sample = id, starts_with('prop')) %>% 
+  pivot_longer(starts_with('prop'),
+               names_to = 'strain',
+               names_prefix = 'prop_',
+               values_to = 'prop') %>% 
+  mutate(strain = as.integer(strain)) %>% 
+  left_join(
+    in_silico_results %>% 
+      filter(str_starts(sample, 'TRIO')) %>% 
+      arrange(method, sample, desc(proportion)) %>% 
+      group_by(method, sample) %>% 
+      slice(seq_len(min(3, n()))) %>% 
+      mutate(strain = seq_along(proportion)) %>% 
+      ungroup() %>% 
+      rename(prop_pred = proportion)) %>% 
+  filter(!is.na(method)) %>% 
+  mutate(strain = ordered(strain))
+
+trio_rmse <- 
+  trio_vs %>% 
+  group_by(method) %>% 
+  filter(!is.na(prop_pred)) %>% 
+  summarise(RMSE = RMSE(prop, prop_pred, ))
+
+trio_vs %>% 
+  left_join(trio_rmse) %>% 
+  mutate(label = str_c(method, ': RMSE=', format(round(RMSE, 2)))) %>% 
+  ggplot(aes(prop, prop_pred)) +
+  geom_abline(col = 'red') +
+  geom_jitter(height = 0, aes(col = strain), alpha = 0.5) +
+  facet_wrap(~label, nrow = 1) +
+  scale_color_viridis_d(end = 0.7) +
+  coord_fixed()
+  
+```
+* Note: MixInfect only predicts majority strain proportion
+
