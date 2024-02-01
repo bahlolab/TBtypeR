@@ -1,6 +1,6 @@
 ---
 title: "TB in silico mixture dataset"
-output: 'html_document'
+output: 'github_document'
 ---
 
 
@@ -16,9 +16,21 @@ ref_fn <- file.path('1.work', basename(ref_url))
 if (!file.exists(ref_fn)) { download.file(ref_url, ref_fn) }
 ```
 
+```{r create_downloader_script, eval=FALSE}
+ids <- read_rds('1.work/nejmoa1800474_subset_metadata.rds')$sample_id
+PARALLEL = 8
+str_c(
+  '#!/usr/bin/env bash',
+  '# requires sra-toolkit fasterq-dump',
+  str_c('echo "', str_c(ids, collapse = ' '), '" |'),
+  '\ttr \' \' \'\\n\' |',
+  str_c('\txargs -n1 -P', PARALLEL, ' -i bash -c "fasterq-dump -3 {} && gzip {}_1.fastq && gzip {}_2.fastq"'),
+  sep = '\n') %>% 
+  write_lines('0.fasterq_dump.sh')
+```
+
 ```{r input_samples}
 # run 0.fasteq_dump.sh to download all fastqs first
-
 # set to directory of FASTQs from SRA-tools fastq-dump on your system
 input_fastq_dir <- './fastq'
 
@@ -60,7 +72,7 @@ if (!dir.exists('1.work/100X_pred')) {
   dir.create('1.work/100X_pred')
 }
 # copy nextflow config
-file.copy('1.work/nextflow.config', '1.work/100X_pred/')
+file.copy('nextflow.config', '1.work/100X_pred/')
 # copy ref
 file.copy(ref_fn, '1.work/100X_pred/')
 # create manifest
@@ -77,7 +89,7 @@ read_tsv('1.work/100X_pred/output/combined_results.tsv') %>%
 ```
 
 ```{r predictions_at_100X}
-
+# read_rds('1.work/100X_combined_results.rds') %>%  View()
 pred_100X <- 
   read_rds('1.work/100X_combined_results.rds') %>% 
   group_by(method, sample) %>% 
@@ -176,7 +188,9 @@ nonmixed <-
 # gds <- seqOpen('in_silico_data/in_silico_bench.concat.gds', allow.duplicate = T)
 # seqSetFilter(gds, sample.id = nonmixed$sample)
 # snp_dist <-  TBtypeR:::snp_distance(gds)
-# saveRDS(snp_dist, 'in_silico_data/snp_dist.rds')
+# saveRDS(snp_dist, '1.work/snp_dist.rds')
+
+# snp_dist_mat <- as.matrix(readRDS('1.work/snp_dist.rds'))
 
 ## avoid sample combinations where snp_distance < 10
 # sample_combs <-
@@ -258,10 +272,23 @@ weights <- rep(1L, nrow(nonmixed))
 #              prop_3 = 1/6),
 #     
 #   )) %>% 
-#   select(id, depth, prop_1, prop_2, prop_3, sample_1, sample_2, sample_3) %>% 
-#   write_rds('./1.work/in_silico_dataset.rds', compress = 'xz')
+#   select(id, depth, prop_1, prop_2, prop_3, sample_1, sample_2, sample_3) 
+
+# sdist <- \(x, y) `if`(is.na(x) | is.na(y), NA_integer_, snp_dist_mat[x, y])
+# 
+# in_silico_dataset <-
+#   in_silico_dataset %>% 
+#   mutate(
+#     dist_1_2 = map2_int(sample_1, sample_2, sdist),
+#     dist_1_3 = map2_int(sample_1, sample_3, sdist),
+#     dist_2_3 = map2_int(sample_2, sample_3, sdist)
+#   )
+# saveRDS(in_silico_dataset, '1.work/in_silico_dataset.rds')
 
 in_silico_dataset <- read_rds('1.work/in_silico_dataset.rds')
+
+
+
 ```
 
 ```{r gen_mix_workflow}
@@ -296,7 +323,7 @@ if (!dir.exists('1.work/benchmark')) {
   dir.create('1.work/benchmark')
 }
 # copy nextflow config
-file.copy('1.work/nextflow.config', '1.work/benchmark/')
+file.copy('nextflow.config', '1.work/benchmark/')
 # copy ref
 file.copy(ref_fn, '1.work/benchmark/')
 # create manifest
@@ -312,12 +339,16 @@ read_tsv('1.work/gen_mix/output/output_manifest.tsv') %>%
 # REVIEWERS ASK FOR IT
 ######################################
 ```
+
 ```{r import_result}
-bench_res_raw <- read_tsv('./1.work/benchmark/output/combined_results.tsv') 
+# bench_res_raw <- read_tsv('./1.work/benchmark/output/combined_results.tsv')
+# saveRDS(bench_res_raw, './1.work/bench_res_raw.rds')
+
+bench_res_raw <- readRDS('./1.work/bench_res_raw.rds')
 
 # ensure that no sample/method combinations missing
 missing <-
-  bench_res_raw%>% 
+  bench_res_raw %>% 
   select(method, sample) %>% 
   distinct() %>% 
   mutate(present = TRUE) %>% 
@@ -327,7 +358,42 @@ missing <-
   mutate(present = replace_na(present, FALSE)) %>% 
   filter(!present)
 
-saveRDS(bench_res_raw, './1.work/bench_res_raw.rds')
+```
+
+```{r nextflow_trace}
+to_giga <- function(x) {
+    mult <- case_when(
+      str_detect(x, ' GB') ~ 1000**0,
+      str_detect(x, ' MB') ~ 1000**-1,
+      str_detect(x, ' KB') ~ 1000**-2,
+      str_detect(x, ' B')  ~ 1000**-3,
+      TRUE ~ NA_real_
+    )
+    as.numeric(str_extract(x, '[0-9\\.]+'))*mult
+}
+# 
+# duration/realtime in secounds
+# peak_rss, peak_vmem, rchar, wchar in GB
+# read_tsv('./1.work/benchmark/trace-20240129-59789472.txt') %>%
+#   janitor::clean_names() %>%
+#   mutate(
+#     across(c(duration, realtime),
+#            \(x) { str_to_upper(x) %>% lubridate::as.duration() %>% as.numeric() }),
+#     percent_cpu = str_remove(percent_cpu, '%') %>% as.numeric(),
+#     across(c(peak_rss, peak_vmem, rchar, wchar), to_giga)
+#   ) %>%
+#   mutate(
+#     tool = str_extract(name, '(?<=Benchmark:).+(?=:)'),
+#     process = str_extract(name, '(?<=Benchmark:[^:]{1,20}:).+(?=\\s)'),
+#     id = str_extract(name, '(?<=\\().+(?=\\))'),
+#     .after = name
+#   ) %>%
+#   select(tool, process, id, duration, realtime, percent_cpu, peak_rss, peak_vmem, rchar, wchar) %>%
+#   arrange(tool, process, id) %>%
+#   mutate(across(c(tool, process, id), as.factor)) %>% 
+#   saveRDS('1.work/nxf_trace.rds')
+
+nxf_trace <- readRDS('1.work/nxf_trace.rds')
 ```
 
 
