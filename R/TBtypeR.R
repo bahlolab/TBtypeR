@@ -5,6 +5,7 @@
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
 tbtype <- function(gds,
+                   allele_counts = NULL,
                    panel = TBtypeR::tbt_panel,
                    max_phylotypes = 5L,
                    min_mix_prop = 0.001,
@@ -34,7 +35,7 @@ tbtype <- function(gds,
 
   # check args
   assert_that(
-    is_gds(gds),
+    is_gds(gds) || !is.null(allele_counts),
     is_scalar_integerish(max_phylotypes) && max_phylotypes > 0,
     is_scalar_integerish(min_median_depth) && min_median_depth > 0,
     is_scalar_double(min_depth_fold) && min_depth_fold >= 1,
@@ -50,10 +51,13 @@ tbtype <- function(gds,
 
   phylo <- panel_to_phylo(panel)
   geno <- panel_to_geno(panel)
-  allele_counts <- get_allele_counts(gds,
-    panel = panel,
-    verbose = verbose
-  )
+  if (is.null(allele_counts)) {
+    allele_counts <- get_allele_counts(gds,
+                                       panel = panel,
+                                       verbose = verbose
+    )
+  }
+
   # subset genotypes to those in input allele counts
   geno_sub <- geno[, colnames(allele_counts), drop = F]
   message("Note: using ", ncol(geno_sub), " of ", ncol(geno), " genotypes")
