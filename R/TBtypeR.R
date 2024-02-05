@@ -85,7 +85,10 @@ tbtype <- function(gds,
   results <-
     seq_len(nrow(allele_counts)) %>%
     furrr::future_map_dfr(function(i) {
-      tryCatch(
+      # write_lines(str_c(i, rownames(allele_counts)[i], Sys.time(), 'start',
+      #                   sep = '\t'),
+      #             '.tbt_log.txt', append = T)
+      x <- tryCatch(
         tbtype_sample(
           phylo = phylo_sub,
           gts = t_geno,
@@ -118,7 +121,12 @@ tbtype <- function(gds,
           stop(e)
         }
       )
-    }, .options = furrr::furrr_options(seed = NULL)) %>%
+      # write_lines(str_c(i, rownames(allele_counts)[i], Sys.time(), 'end',
+      #                   sep = '\t'),
+      #             '.tbt_log.txt', append = T)
+      return(x)
+
+    }, .options = furrr::furrr_options(seed = NULL, scheduling = 10L)) %>%
     select(sample_id, tidyr::everything())
 
   return(results)
@@ -153,6 +161,7 @@ tbtype_sample <- function(phylo,
                           exclude_inner,
                           error_rate,
                           seed) {
+
 
   set.seed(seed)
   median_dp <- median(as.integer(rowSums(sm_allele_counts)), na.rm = TRUE)
@@ -285,18 +294,17 @@ tbtype_sample <- function(phylo,
     }
 
     mix_gts <- cbind(mix_gts_last, phy_gts[, node_next])
-    # optimise mixture proportions
-    optim_prop <- optim_phy_mix(data,
+
+    optim <- optimise_mix_and_error_rate(
+      data = data,
       mix_gts = mix_gts,
-      error_rate = optim_error$error_rate,
-      fit = c_spike_in(mix_prop_last, spike_in_p)
+      fit = c_spike_in(mix_prop_last, spike_in_p),
     )
 
-    model_curr <-
-      colSums(t(mix_gts) * optim_prop$prop) %>%
-      force_to_interval()
+    model_curr <- optim$model_curr
+    optim_prop <- optim$optim_prop
+    optim_error <- optim$optim_error
 
-    optim_error <- optimise_error_rate(data, model_curr)
 
     mix_fit <-
       sample_fit %>%
@@ -307,7 +315,7 @@ tbtype_sample <- function(phylo,
         mix_n = i + 1,
         mix_prop = optim_prop$prop,
         phylotype = node_to_label(phylo, node),
-        likelihood = optim_error$likelihood,
+        likelihood = optim_prop$likelihood,
         error_rate = optim_error$error_rate,
         p_val_perm = res_next_top$p_val_perm,
         p_val_wsrst = res_next_top$p_val_wsrst,
@@ -319,7 +327,7 @@ tbtype_sample <- function(phylo,
       )
 
     if (reoptimise) {
-      lh_curr <- optim_error$likelihood
+      lh_curr <- optim_prop$likelihood
       changed <- FALSE
 
       for (j in seq_len(ncol(mix_gts))) {
@@ -370,22 +378,22 @@ tbtype_sample <- function(phylo,
       }
 
       if (changed) {
+        nodes_curr <- mix_fit$node
         mix_gts <- phy_gts[, nodes_curr, drop = FALSE]
-        optim_prop <- optim_phy_mix(data,
+
+        optim <- optimise_mix_and_error_rate(
+          data = data,
           mix_gts = mix_gts,
-          error_rate = optim_error$error_rate,
-          fit = mix_fit$mix_prop
+          fit = mix_fit$mix_prop,
         )
 
-        model_curr <-
-          colSums(t(mix_gts) * optim_prop$prop) %>%
-          force_to_interval()
-
-        optim_error <- optimise_error_rate(data, model_curr)
+        # model_curr <- optim$model_curr
+        optim_prop <- optim$optim_prop
+        optim_error <- optim$optim_error
 
         mix_fit$mix_prop <- optim_prop$prop
         mix_fit$error_rate <- optim_error$error_rate
-        mix_fit$likelihood <- optim_error$likelihood
+        mix_fit$likelihood <- optim_prop$likelihood
         mix_fit$abs_diff <- sum(abs(model_last - model_curr))
       }
     }
@@ -484,6 +492,8 @@ phy_mix_lh <- function(data, phy_gts_last, phy_gts_search, mix_prop_last, mix_pr
                        max_p_val_wsrst = 0.001,
                        n_perm = 1000L,
                        score_best_only = TRUE) {
+
+
 
   # check args
   assert_that(
@@ -745,6 +755,67 @@ optim_phy_mix <- function(data,
     n_iter = n_iter,
     converged = converged
   ))
+}
+
+optimise_mix_and_error_rate <- function(data,
+                                        mix_gts,
+                                        fit,
+                                        min_error = 0.0001,
+                                        max_error = 0.1,
+                                        min_delta_e = 0.0005,
+                                        n = 10L,
+                                        max_iter_err = 10L,
+                                        resolution = 10000L,
+                                        max_iter_mix = 1000L,
+                                        max_iter_top = 5L)
+{
+  optim_error <- NULL
+  optim_prop <- NULL
+  model_curr <-
+    colSums(t(mix_gts) * fit) %>%
+    force_to_interval()
+  converged <- FALSE
+
+  for (i in seq_len(max_iter_top)) {
+
+    optim_error <-
+      optimise_error_rate(
+        data,
+        model_curr,
+        min_error = min_error,
+        max_error = max_error,
+        min_delta_e = min_delta_e,
+        n = 10L,
+        max_iter = max_iter_err
+      )
+
+    optim_prop <-
+      optim_phy_mix(
+        data,
+        mix_gts = mix_gts,
+        error_rate = optim_error$error_rate,
+        fit = fit,
+        resolution = resolution,
+        max_iter = max_iter_mix
+      )
+
+    fit <- optim_prop$prop
+
+    model_curr <-
+      colSums(t(mix_gts) * fit) %>%
+      force_to_interval()
+
+    delta <- optim_prop$likelihood - optim_error$likelihood
+    # print(str_c(i, ': ', delta))
+
+    if (delta <= 0) {
+      break
+    }
+  }
+
+  list(optim_prop = optim_prop,
+       optim_error = optim_error,
+       model_curr = model_curr)
 }
 
 #' @export
