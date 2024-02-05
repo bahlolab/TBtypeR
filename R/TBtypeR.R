@@ -767,6 +767,11 @@ filter_tbtype <- function(tbtype_results,
     is_scalar_double(min_abs_diff)
   )
 
+  if (!"mix_prop" %in% colnames(tbtype_results)) {
+    warning("Nothing to filter")
+    return(tbtype_results)
+  }
+
   tbtype_results %>%
     nest_mixtures(warn = FALSE) %>%
     filter(lengths(mix_prop) > 0) %>%
