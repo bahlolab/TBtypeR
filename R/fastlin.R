@@ -1,14 +1,18 @@
 
 #' @importFrom readr write_lines
 #' @importFrom readr write_tsv
+#' @importFrom stringr str_remove str_remove_all str_sub str_detect
 make_fastlin_bc <- function(
     output = 'TBtypeR.fastlin_bc.tsv',
+    mode = c('TBtypeR', 'fastlin'),
     ref_fasta = 'https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/195/955/GCA_000195955.2_ASM19595v2/GCA_000195955.2_ASM19595v2_genomic.fna.gz',
     panel = TBtypeR::tbt_panel,
     genome_size = 4411532,
     window = 50L
 )
 {
+
+  mode <- match.arg(mode)
 
   if (!is.data.frame(panel)) {
     panel <- read_panel(panel)
@@ -23,6 +27,7 @@ make_fastlin_bc <- function(
     output)
 
   panel %>%
+    (\(x) `if`(mode == 'fastlin', rename_panel_fastlin(x), x)) %>%
     filter(pos > window, pos < genome_size - window) %>% # must allow +/-50 bp
     mutate(
       left =
@@ -41,13 +46,33 @@ make_fastlin_bc <- function(
             IRanges::IRanges(pos+1, width = window))
         ) %>%
         as.character()) %>%
-    select(pos, ref, alt, left, right) %>%
-    (\(x) bind_rows(
-      mutate(x, site = str_c('p', pos, '.', ref)) %>%
-        select(site, left, snp = ref, right),
-      mutate(x, site = str_c('p', pos, '.', alt)) %>%
-        select(site, left, snp = alt, right)
-    )) %>%
+    (function(x) {
+      if (mode == 'TBtypeR') {
+        select(x, pos, ref, alt, left, right) %>%
+          (\(x) bind_rows(
+            mutate(x, site = str_c('p', pos, '.', ref)) %>%
+              select(site, left, snp = ref, right),
+            mutate(x, site = str_c('p', pos, '.', alt)) %>%
+              select(site, left, snp = alt, right)
+          ))
+      } else {
+        bind_rows(
+          filter(x, genotype == 1) %>%
+            select(phylotype, left, snp = alt, right) %>%
+            # remove redundant 25-mers
+            mutate(
+              kmer = str_c(str_sub(left, start = window - 12 + 1), snp, str_sub(right, end = 12)),
+              n = Biostrings::countPDict(Biostrings::PDict(kmer), ref_genome[[1]]),
+              n = n + Biostrings::countPDict(Biostrings::PDict(kmer), Biostrings::reverseComplement(ref_genome[[1]]))
+            ) %>%
+            filter(n == 0) %>%
+            select(-kmer, -n)
+          ,
+          filter(x, genotype == 0) %>%
+            select(phylotype, left, snp = ref, right),
+        )
+      }
+    }) %>%
     arrange_all() %>%
     write_tsv(output, append = T)
 }
@@ -90,3 +115,58 @@ fastlin_allele_counts <- function(
   dimnames(ac_array) <- list(sample = sample_id, variant = ac_tbl$vid, allele = c('ref', 'alt'))
   return(ac_array)
 }
+
+rename_panel_fastlin <- function(panel) {
+  # fastlin expect parent to be strict prefix
+  orig <-
+    panel %>%
+    select(phylo = phylotype, parent = parent_phylotype) %>%
+    distinct()
+
+  new <- with(orig, str_remove(phylo, str_c('^', parent, '\\.')))
+  new <- str_c(new, '[', seq_along(new), ']')
+  names(new) <- orig$phylo
+  mod <-
+    orig %>%
+    mutate(phylo = unname(new[phylo]),
+           parent = if_else(!is.na(new[parent]),
+                            unname(new[parent]),
+                            parent))
+
+  parents <- filter(mod, parent == 'root') %>% pull(phylo)
+  while (TRUE) {
+    childs <- filter(mod, parent %in% parents) %>% pull(phylo)
+    if (length(childs) == 0) {
+      break
+    }
+    new <-
+      mod %>%
+      with(if_else(
+        phylo %in% childs,
+        str_c(parent, '.', phylo),
+        phylo
+      ))
+    names(new) <- mod$phylo
+
+    mod <-
+      mod %>%
+      mutate(phylo = new[phylo],
+             parent = if_else(!is.na(new[parent]), new[parent], parent))
+
+    parents <- unname(new[childs])
+  }
+
+  mod <-
+    mod %>%
+    mutate(across(everything(), \(x) str_remove_all(x, '\\[[0-9]+\\]')))
+
+  old <- with(orig, unique(c(phylo, parent)))
+  new <- with(mod, unique(c(phylo, parent)))
+  names(new) <- old
+
+  panel %>%
+    mutate(phylotype = new[phylotype],
+           parent_phylotype = new[parent_phylotype])
+
+}
+

@@ -1,6 +1,6 @@
 #' TBtypeR SNP phylotype panel.
 #'
-#' @format A data frame with 9,687 rows and 8 columns:
+#' @format A data frame with 10,904 rows and 8 columns:
 #' \describe{
 #'   \item{chrom}{H37Rv chromosome}
 #'   \item{pos}{H37Rv genomic position}
@@ -14,6 +14,7 @@
 #' @source Napier et al. 2020: \url{https://doi.org/10.1186/s13073-020-00817-3}
 #' @source Thawornwattana et al. 2021: \url{https://doi.org/10.1099/mgen.0.000697}
 #' @source Coscolla et al. 2021: \url{https://doi.org/10.1099/mgen.0.000477}
+#' @source Zwyer et al. 2021: \url{https://doi.org/10.12688/openreseurope.14029.2}
 #' @source Shuaib et al. 2022: \url{https://doi.org/10.3390/genes13060990}
 "tbt_panel"
 

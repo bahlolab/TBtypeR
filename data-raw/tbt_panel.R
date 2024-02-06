@@ -1,6 +1,8 @@
+#!/usr/bin/env Rscript
+# Script to derive the TBtypeR SNP panel from published sources
+
 library(tidyverse)
 jemr::fix_tidyverse_conflicts()
-
 
 # set and create working directory
 wd <- file.path(normalizePath('.'), 'data-raw')
@@ -48,12 +50,17 @@ if (!file.exists(napier_fn)) {
     mutate(reference = 'Napier et al. 2020',
            date = lubridate::dmy('14 December 2020')) %>%
     filter_bc(h37rv_ref) %>%
+    mutate(lineage = lineage %>%
+             str_replace('M.bovis',  'La1') %>%
+             str_replace('M.caprae', 'La2') %>%
+             str_replace('M.orygis', 'La3')) %>% # prefer nomenclature from Zwyer et al
     saveRDS(napier_fn)
 }
 napier_bc <- read_rds(napier_fn)
 
 # ---------- COSCOLLA ----------
-# detailed SNP barcode for lineage 5, 6 and 9
+# detailed SNP barcode for lineage 5, 6
+# note: lineage 9 barcode trialled but degraded performance so dropped
 # https://doi.org/10.1099/mgen.0.000477
 # requires manual download of Supplementary material 1 to {wd}/000477_1.xlsx
 
@@ -72,21 +79,22 @@ if(!file.exists(coscolla_bc_l5_l6_fn)) {
 }
 coscolla_bc_l5_l6 <- readRDS(coscolla_bc_l5_l6_fn)
 
-coscolla_bc_l9_fn <- file.path(wd, 'coscolla_bc_l9.rds')
-if (!file.exists(coscolla_bc_l9_fn)){
-  readxl::read_xlsx(file.path(wd, '000477_1.xlsx'), sheet ='Table S2', skip = 3) %>%
-    janitor::clean_names() %>%
-    select_if(~!all(is.na(.))) %>%
-    mutate(lineage = '9') %>%
-    select(lineage, pos = genome_position, ref = reference_base, alt = alternative_base) %>%
-    filter_bc(h37rv_ref) %>%
-    saveRDS(coscolla_bc_l9_fn)
-}
-coscolla_bc_l9 <- readRDS(coscolla_bc_l9_fn)
+# coscolla_bc_l9_fn <- file.path(wd, 'coscolla_bc_l9.rds')
+# if (!file.exists(coscolla_bc_l9_fn)){
+#   readxl::read_xlsx(file.path(wd, '000477_1.xlsx'), sheet ='Table S2', skip = 3) %>%
+#     janitor::clean_names() %>%
+#     select_if(~!all(is.na(.))) %>%
+#     mutate(lineage = '9') %>%
+#     select(lineage, pos = genome_position, ref = reference_base, alt = alternative_base) %>%
+#     filter_bc(h37rv_ref) %>%
+#     saveRDS(coscolla_bc_l9_fn)
+# }
+# coscolla_bc_l9 <- readRDS(coscolla_bc_l9_fn)
 
 coscolla_bc <-
-  bind_rows(coscolla_bc_l5_l6,
-            coscolla_bc_l9) %>%
+  # bind_rows(coscolla_bc_l5_l6,
+  #           coscolla_bc_l9) %>%
+  coscolla_bc_l5_l6 %>%
   mutate(reference = 'Coscolla et al. 2021',
          date = lubridate::dmy('08 February 2021'))
 
@@ -132,6 +140,33 @@ if (!file.exists(shuaib_fn)) {
 }
 shuaib_bc <- read_rds(shuaib_fn)
 
+
+# ----------  Zwyer ---------
+# M. bovis, M. caprae and M. orygis.
+# https://doi.org/10.12688/openreseurope.14029.2
+# requires download of Supplementary material S4 to {wd}/genes13060990_S4.xlsx
+zwyer_fn <- file.path(wd, 'zwyer_bc.rds')
+if (!file.exists(zwyer_fn)) {
+
+  read_tsv('https://zenodo.org/records/5730685/files/Table4.txt') %>%
+    janitor::clean_names() %>%
+    select(lineage = phylogenetic_snp,
+           pos = position_ref,
+           ref = ancestral,
+           alt = derived) %>%
+    filter_bc(h37rv_ref) %>%
+    mutate(lineage = case_when(
+      str_detect(lineage, 'La1.2_La1.2 BCG') ~ 'La1.2',
+      str_detect(lineage, 'La1.2 BCG')       ~ 'La1.2.BCG',
+      TRUE                                   ~ lineage)
+    ) %>%
+    mutate(reference = 'Zwyer et al. 2021',
+           date = lubridate::dmy('25 Aug 2021')) %>%
+    saveRDS(zwyer_fn)
+}
+zwyer_bc <- read_rds(zwyer_fn)
+
+
 # ---------- COMBINE BARCODES -----------
 
 # check overlaps/ disagreements
@@ -139,7 +174,8 @@ bind_rows(
   napier_bc,
   coscolla_bc,
   thaworn_bc,
-  shuaib_bc) %>%
+  shuaib_bc,
+  zwyer_bc) %>%
   mutate(reference = word(reference) %>% str_to_lower()) %>%
   add_count(pos, ref, alt) %>% filter(n > 1) %>%
   # select(pos, lineage, reference) %>%
@@ -148,17 +184,22 @@ bind_rows(
             lins = list(lineage[match(refs[[1]], reference)])) %>%
   mutate(across(c(refs, lins), map_chr, \(x) str_c(x, collapse = ' -- '))) %>%
   count(refs, lins) %>%
-  arrange(desc(n))
-
+  arrange(desc(n)) %>%
+  View()
 
 combined_bc <-
   bind_rows(
     napier_bc %>%
-      filter(! str_starts(lineage, '2\\.'), # prefer thaworn_bc
-             ! str_starts(lineage, '3\\.')), # prefer shuaib_bc
+      filter(! str_starts(lineage, '2\\.'), # prefer thaworn_bc/# prefer shuaib_bc
+             ! str_starts(lineage, '3\\.')) %>%
+      anti_join( # remove some conflicts
+        zwyer_bc %>% filter(!lineage %in% c('La1', 'La2', 'La3')),
+        by = 'pos'
+      ),
     coscolla_bc,
     thaworn_bc,
-    shuaib_bc) %>%
+    shuaib_bc,
+    zwyer_bc) %>%
   arrange(pos, ref, alt) %>%
   group_by(pos) %>%
   slice(which.min(date)) %>%
@@ -172,7 +213,8 @@ tbt_panel <-
   distinct() %>%
   mutate(parent = case_when(
     str_detect(lineage, '^[0-9]$') ~ 'root',
-    str_detect(lineage, '^M\\.')   ~ 'root',
+    lineage %in% c('La1_La2', 'La3')   ~ 'root',
+    lineage %in% c('La1', 'La2')   ~ 'La1_La2',
     lineage %in% c('2.2.A', '2.2.AA2', '2.2.AA3', '2.2.AA4', '2.2.B', '2.2.C', '2.2.D',
                    '2.2.E', '2.2.M1', '2.2.M2', '2.2.M3', '2.2.M4', '2.2.M5', '2.2.M6')
     ~ '2.2.1',
@@ -191,3 +233,5 @@ tbt_panel <-
   arrange_all()
 
 usethis::use_data(tbt_panel, overwrite = TRUE, internal = FALSE)
+
+write_tsv(tbt_panel, file.path(wd, 'tbt_panel.tsv.gz'))
