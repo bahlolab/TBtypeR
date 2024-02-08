@@ -1,0 +1,20 @@
+---
+title: "TB in vitro mixture dataset"
+output: 'github_document'
+---
+
+
+```{r setup}
+library(tidyverse)
+iv_bench_metrics <- readRDS('03/iv_bench_metrics.rds')
+```
+
+```{r}
+iv_bench_metrics %>% 
+  select(method, nMCC, sensitivity = recall, specificity, `1-MAE`) %>% 
+  mutate(across(where(is.numeric), ~ format(round(., 3)))) %>% 
+  writexl::write_xlsx('Table1.xlsx')
+```
+
+
+

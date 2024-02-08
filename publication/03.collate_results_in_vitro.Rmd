@@ -1,0 +1,92 @@
+---
+title: "TB in vitro mixture dataset"
+output: 'github_document'
+---
+
+
+```{r setup}
+library(tidyverse)
+source('functions.R')
+
+mi_tab_1 <- readRDS('02/mi_tab_1.rds')
+ss_sup_tab <- readRDS('02/ss_sup_tab.rds')
+iv_bench_res_raw <- 
+  bind_rows(
+    readRDS('02/iv_bench_res_raw.rds'),
+    readRDS('02/iv_bench_res_var_raw.rds') %>% 
+      mutate(method = if_else(
+        method == 'FastTBtypeR',
+        str_c('TBtypeR (+FL)'),
+        str_c(method, ' (+TBT)')))
+  )
+```
+
+
+
+```{r summarise_predictions}
+iv_bench_res_smry <-
+  full_join(
+    mi_tab_1 %>% 
+      mutate(minor_prop = 1 - major_strain_proportion,
+             is_mixed = major_strain_proportion < 1) %>% 
+      select(sample = sample_identifier,
+             minor_prop,
+             is_mixed),
+    iv_bench_res_raw %>% 
+      group_by(method, sample) %>% 
+      summarise(
+        mix_n = n(),
+        is_mixed = mix_n > 1,
+        minor_prop = 1 - suppressWarnings(max(proportion, na.rm = T)),
+        minor_prop = `if`(is.finite(minor_prop), minor_prop, 0),
+        .groups = 'drop'
+      ) %>% 
+      bind_rows(
+        mi_tab_1 %>% 
+          transmute(
+            method = 'MixInfect (pub)',
+            sample = sample_identifier,
+            minor_prop = 1 - major_strain_proportion_2,
+            mix_n = no_of_strains,
+            is_mixed = mix_n > 1
+          ),
+        ss_sup_tab %>% 
+          unnest(split_strains) %>% 
+          transmute(
+            method = 'SplitStrains (pub)',
+            sample = id,
+            minor_prop = 1-proportions,
+            is_mixed = minor_prop > 0,
+            mix_n = if_else(minor_prop == 0, 1L, 2L)
+          )
+      ),
+    by = 'sample',
+    suffix = c('', '_pred')
+  )
+
+```
+
+```{r iv_bench_metrics}
+iv_bench_metrics <-
+  iv_bench_res_smry %>%
+  group_by(method) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            `1-MAE` = 1-MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  mutate(rank = ordered(rank(desc(nMCC)))) %>% 
+  arrange(desc(rank)) %>% 
+  mutate(method = as_factor(method)) %>% 
+  arrange(rank) %>% 
+  select(-rank)
+
+saveRDS(iv_bench_metrics, '03/iv_bench_metrics.rds')
+
+iv_bench_metrics
+
+```
+
+```{r}
+# TODO: write note about mismatch scores for SplitStrains and MixInfect
+```
+
