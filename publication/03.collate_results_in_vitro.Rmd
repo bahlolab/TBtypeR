@@ -10,15 +10,7 @@ source('functions.R')
 
 mi_tab_1 <- readRDS('02/mi_tab_1.rds')
 ss_sup_tab <- readRDS('02/ss_sup_tab.rds')
-iv_bench_res_raw <- 
-  bind_rows(
-    readRDS('02/iv_bench_res_raw.rds'),
-    readRDS('02/iv_bench_res_var_raw.rds') %>% 
-      mutate(method = if_else(
-        method == 'FastTBtypeR',
-        str_c('TBtypeR (+FL)'),
-        str_c(method, ' (+TBT)')))
-  )
+iv_bench_res_raw <- readRDS('02/iv_bench_res_raw.rds')
 ```
 
 

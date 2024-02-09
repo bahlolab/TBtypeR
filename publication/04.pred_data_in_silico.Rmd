@@ -355,6 +355,39 @@ cd "04/benchmark"
 nextflow run ../../TBpipeR/main.nf
 ```
 
+```{r bench_res_raw}
+bench_res_raw <- 
+  bind_rows(
+    read_tsv('04/benchmark/output/combined_results.tsv'),
+    read_tsv('04/benchmark/output-var//combined_results.tsv') %>% 
+      mutate(method = if_else(
+        method == 'FastTBtypeR',
+        str_c('TBtypeR (+FL)'),
+        str_c(method, ' (+TBT)')))
+  ) %>% 
+  mutate(
+    method = str_replace(method, 'fastlin', 'Fastlin'),
+    method = str_replace(method, 'quanttb', 'QuantTB'),
+  )
+
+in_silico_dataset <-  readRDS('04/in_silico_dataset.rds') 
+
+missing <-
+  bench_res_raw %>% 
+  select(method, sample) %>% 
+  distinct() %>% 
+  mutate(present = TRUE) %>% 
+  group_by(method) %>% 
+  complete(sample = in_silico_dataset$id) %>% 
+  ungroup() %>% 
+  mutate(present = replace_na(present, FALSE)) %>% 
+  filter(!present)
+
+assertthat::assert_that(nrow(missing) == 0)
+
+saveRDS(bench_res_raw, '04/bench_res_raw.rds')
+```
+
 ```{r prep_benchmark_time, eval=FALSE}
 if (!dir.exists('04/benchmark_time')) {
   dir.create('04/benchmark_time')
@@ -408,4 +441,71 @@ nextflow run ../../TBpipeR/main.nf
 nextflow run ../../TBpipeR/main.nf
 nextflow run ../../TBpipeR/main.nf
 rename trace- trace-var trace-2*
+```
+
+```{r import_nxf_trace, eval=FALSE}
+to_seconds <- function(x) {
+
+  tibble(
+    h = str_extract(x, '[0-9\\.]+(?=h)'),
+    m = str_extract(x, '[0-9\\.]+(?=m(\\s|$))'),
+    s = str_extract(x, '[0-9\\.]+(?=s)'),
+    ms = str_extract(x, '[0-9\\.]+(?=ms)')) %>% 
+    mutate(across(everything(), ~ replace_na(as.numeric(.), 0))) %>% 
+    mutate(h = 60*60*h,
+           m = 60*m,
+           ms = ms /1000) %>% 
+    rowSums()
+}
+
+to_giga <- function(x) {
+    mult <- case_when(
+      str_detect(x, ' GB') ~ 1000**0,
+      str_detect(x, ' MB') ~ 1000**-1,
+      str_detect(x, ' KB') ~ 1000**-2,
+      str_detect(x, ' B')  ~ 1000**-3,
+      TRUE ~ NA_real_
+    )
+    as.numeric(str_extract(x, '[0-9\\.]+'))*mult
+}
+# duration/realtime in secounds
+# peak_rss, peak_vmem, rchar, wchar in GB
+read_trace <- function(nxf_trace_file) {
+  read_tsv(nxf_trace_file, col_types = cols()) %>%
+  janitor::clean_names() %>%
+  mutate(
+    across(c(duration, realtime), to_seconds),
+    percent_cpu = str_remove(percent_cpu, '%') %>% as.numeric(),
+    across(c(peak_rss, peak_vmem, rchar, wchar), to_giga)
+  ) %>%
+  mutate(
+    method = str_extract(name, '(?<=Benchmark:).+(?=:)'),
+    process = str_extract(name, '(?<=Benchmark:[^:]{1,20}:)[^\\s]+'),
+    id = str_extract(name, '(?<=\\().+(?=\\))'),
+    .after = name
+  ) %>%
+  select(method, process, id, duration, realtime, percent_cpu, peak_rss, peak_vmem, rchar, wchar) %>%
+  arrange(method, process, id)
+  # mutate(across(c(tool, process, id), as.factor)) %>%
+}
+ 
+nxf_trace <-
+  bind_rows(
+    list.files('04/benchmark_time', pattern = 'trace-var', full.names = T) %>% 
+      map_df(read_trace)  %>% 
+      mutate(method = if_else(
+        method == 'FastTBpipeR',
+        str_c('TBtypeR (+FL)'),
+        str_c(method, ' (+TBT)'))),
+    list.files('04/benchmark_time', pattern = 'trace-default', full.names = T) %>% 
+      map_df(read_trace) %>% 
+      mutate(method = if_else(
+        str_detect(method, 'TBpipeR'),
+        'TBtypeR',
+        method))
+  ) %>% 
+  filter(!is.na(method))
+
+saveRDS(nxf_trace, '04/nxf_trace.rds')
+  
 ```

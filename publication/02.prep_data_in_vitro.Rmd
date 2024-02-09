@@ -147,9 +147,20 @@ message("Optimal Splitstrains LR_Statistc threshold: ", splitstrain_thresh)
 ```
 
 ```{r save_bench_results_2, eval=FALSE}
-read_tsv('02/benchmark/output/combined_results.tsv') %>% 
-  saveRDS('02/iv_bench_res_raw.rds')
 
-read_tsv('02/benchmark/output-var/combined_results.tsv') %>% 
-  saveRDS('02/iv_bench_res_var_raw.rds')
+iv_bench_res_raw <- 
+  bind_rows(
+    read_tsv('02/benchmark/output/combined_results.tsv'),
+    read_tsv('02/benchmark/output-var/combined_results.tsv') %>% 
+      mutate(method = if_else(
+        method == 'FastTBtypeR',
+        str_c('TBtypeR (+FL)'),
+        str_c(method, ' (+TBT)')))
+  ) %>% 
+  mutate(
+    method = str_replace(method, 'fastlin', 'Fastlin'),
+    method = str_replace(method, 'quanttb', 'QuantTB'),
+  )
+
+saveRDS(iv_bench_res_raw, '02/iv_bench_res_raw.rds')
 ```

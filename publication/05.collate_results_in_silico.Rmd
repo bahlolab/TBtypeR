@@ -5,41 +5,21 @@ output: 'html_document'
 
 ```{r setup, include=FALSE}
 library(tidyverse)
-source('2.functions.R')
+source('functions.R')
 ```
 
 ```{r import_results}
+in_silico_dataset <- 
+  read_rds('04/in_silico_dataset.rds') %>% 
+  mutate(across(c(prop_2, prop_3), \(x) replace_na(x, 0)))
 
-bench_res_raw <- 
-  bind_rows(
-    readRDS('./1.work/bench_res_raw.rds'),
-    readRDS('./1.work/bench_res_var_raw.rds') %>% 
-      mutate(method = if_else(
-        method == 'FastTBtypeR',
-        str_c('TBtypeR (+FL)'),
-        str_c(method, ' (+TBT)')))
-  )
+bench_res_raw <- read_rds('04/bench_res_raw.rds')
 
-missing <-
-  bind_rows(bench_res_raw, bench_res_var_raw) %>% 
-  select(method, sample) %>% 
-  distinct() %>% 
-  mutate(present = TRUE) %>% 
-  group_by(method) %>% 
-  complete(sample = in_silico_dataset$id) %>% 
-  ungroup() %>% 
-  mutate(present = replace_na(present, FALSE)) %>% 
-  filter(!present)
-
-assertthat::assert_that(nrow(missing) == 0)
+nxf_trace <- readRDS('04/nxf_trace.rds')
 ```
 
 ```{r summarise}
-in_silico_dataset <- 
-  read_rds('1.work/in_silico_dataset.rds') %>% 
-  mutate(across(c(prop_2, prop_3), \(x) replace_na(x, 0)))
-  
-## TODO - resolve TBProfiler errors
+
 bench_res_smry <-
   bench_res_raw %>% 
   group_by(method, sample) %>% 
@@ -100,28 +80,30 @@ bimix_tbl <-
   ) %>% 
   mutate(minor_percent = 100 * minor_prop,
          minor_percent_pred = 100 * minor_prop_pred)
+
+saveRDS(bimix_tbl, '05/bimix_tbl.rds')
 ```
 
 
 
 ```{r bimix_orverall}
 # summarise over all data points
-bimix_tbl_pooled <-
+is_duo_bench_metrics <-
   bimix_tbl %>%
   group_by(method) %>%
   summarise(measures = binary_measures(is_mixed, is_mixed_pred),
-            MAE =  1-MAE(minor_prop, minor_prop_pred),
+            `1-MAE` =  1-MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  mutate(rank = ordered(rank(desc(nMCC)))) %>% 
-  arrange(desc(rank)) %>% 
+  arrange(desc(nMCC)) %>% 
   mutate(method = as_factor(method))
 
-bimix_tbl_pooled %>% 
-  select(-accuracy, -rank) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+saveRDS(is_duo_bench_metrics, '05/is_duo_bench_metrics.rds')
+
+is_duo_bench_metrics %>% 
+  select(-accuracy) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, `1-MAE`),
                names_to = 'measure') %>% 
-  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
   mutate(measure = factor(measure, 
                           c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
   group_by(measure) %>% 
@@ -143,13 +125,13 @@ breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
 
 bimix_tbl %>% 
   filter(is_mixed) %>% 
-  left_join(bimix_tbl_pooled %>% 
+  left_join(is_duo_bench_metrics %>% 
               transmute(method = method,
                         label = str_c(method,
-                                      '\nMAE=', format(round(1-MAE, 2)),
+                                      '\nMAE=', format(round(1-`1-MAE`, 2)),
                                       '\nrecall=', format(round(recall, 2)))),
             by = 'method') %>% 
-  filter(!is.na(minor_percent_pred)) %>% 
+  filter(!is.na(minor_percent_pred))  %>% 
   ggplot(aes(minor_percent, minor_percent_pred, group = minor_percent)) +
   geom_abline(col = 'red') +
   geom_boxplot(fill = NA, outlier.alpha = 0.5) +
@@ -164,29 +146,31 @@ bimix_tbl %>%
 ```
 
 ```{r by_depth}
-by_depth <-
+is_duo_by_depth <-
   bimix_tbl %>% 
   group_by(method, depth) %>%
   summarise(measures = binary_measures(is_mixed, is_mixed_pred),
             MAE = 1-MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
                names_to = 'measure') %>% 
-  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure))
+
+saveRDS(is_duo_by_depth, '05/is_duo_by_depth.rds')
+
+is_duo_by_depth %>% 
   mutate(measure = factor(measure, 
-                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
-  mutate(method = factor(method, rev(levels(bimix_tbl_pooled$method))))
-
-
-by_depth %>% 
-  ggplot(aes(depth, value, colour = method, shape=method)) +
-  geom_line() + 
-  geom_point(aes(shape = method)) +
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+  ggplot(aes(depth, value, colour = method)) +
+  # ggplot(aes(depth, value, colour = method, lty = method)) +
+  geom_line() +
+  geom_point(aes(shape=method)) +
   theme(legend.position = 'bottom') +
   facet_wrap(~measure,  scales='free_y') +
   scale_x_continuous(minor_breaks = NULL) +
   scale_y_continuous(minor_breaks = NULL) +
+  scale_shape_discrete() +
   # scale_shape_manual(values = c(8:9, 15:18)) +
   ylab('value') +
   ggtitle('by depth')
@@ -195,7 +179,7 @@ by_depth %>%
 
 
 ```{r by_mp}
-by_mp <-
+is_duo_by_mp <-
   bimix_tbl %>% 
   mutate(minor_percent = mpg * 100) %>% 
   group_by(method, minor_percent) %>%
@@ -203,16 +187,16 @@ by_mp <-
             MAE = 1-MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
                names_to = 'measure') %>% 
-  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) 
+
+saveRDS(is_duo_by_mp, '05/is_duo_by_mp.rds')
+
+is_duo_by_mp %>% 
   mutate(measure = factor(measure, 
-                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
-  mutate(method = factor(method, rev(levels(bimix_tbl_pooled$method))))
-
-
-by_mp %>% 
-  ggplot(aes(minor_percent, value, colour = method, shape=method)) +
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy')))  %>% 
+ggplot(aes(minor_percent, value, colour = method, shape=method)) +
   geom_line() + 
   geom_point(aes(shape = method)) +
   theme(legend.position = 'bottom') +
@@ -228,7 +212,7 @@ by_mp %>%
 
 ```{r by_dist}
 
-by_dist_bin <-
+is_duo_by_dist <-
   bimix_tbl %>% 
   mutate(dist_bin = cume_dist(distance) %/% (1/5) + 1) %>% 
   group_by(method, dist_bin) %>%
@@ -236,14 +220,17 @@ by_dist_bin <-
             MAE = 1-MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
                names_to = 'measure') %>% 
-  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
-  mutate(measure = factor(measure, 
-                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
-  mutate(method = factor(method, rev(levels(bimix_tbl_pooled$method))))
+  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure))
+  
 
-by_dist_bin %>% 
+saveRDS(is_duo_by_dist, '05/is_duo_by_dist.rds')
+
+is_duo_by_dist %>% 
+  mutate(measure = factor(
+    measure, 
+    c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
   ggplot(aes(dist_bin, value, colour = method, shape=method)) +
   geom_line() +
   geom_point(aes(shape = method)) +
@@ -277,17 +264,19 @@ trimix_tbl <-
   mutate(across(starts_with('mix_n'), \(x) ordered(x)))
 
 
-trimix_tbl_measures_pooled <-
+is_trio_bench_metrics <-
   trimix_tbl %>%
   filter(mix_n != 2) %>% 
   group_by(method) %>%
   summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
-            MAE = 1- MAE(c(prop_2, prop_3),
+            `1-MAE` = 1- MAE(c(prop_2, prop_3),
                            c(prop_2_pred, prop_3_pred)),
             .groups = 'drop')  %>%
   unnest(measures)
 
-trimix_tbl_measures_pooled_123 <-
+saveRDS(is_trio_bench_metrics, '05/is_trio_bench_metrics.rds')
+
+is_trio_bench_metrics_123 <-
   trimix_tbl %>%
   group_by(method) %>%
   summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
@@ -308,13 +297,19 @@ trimix_tbl_measures <-
 ```
 
 ```{r}
-trimix_tbl %>% 
+
+is_trio_accuracy <- 
+  trimix_tbl %>% 
   left_join(
-    trimix_tbl_measures_pooled_123 %>% 
+    is_trio_bench_metrics_123 %>% 
       select(method, accuracy) 
   ) %>%
-  # mutate(label = method) %>%
-  mutate(label = str_c(method, ': accuracy=', format(round(accuracy, 2)))) %>%
+  select(id, method, accuracy, mix_n, mix_n_pred) 
+
+saveRDS(is_trio_accuracy, '05/is_trio_accuracy.rds')
+
+is_trio_accuracy %>% 
+  mutate(label = str_c(method, ': accuracy=', format(round(accuracy, 2)))) %>% 
   arrange(desc(accuracy)) %>% 
   mutate(label = as_factor(label)) %>% 
   ggplot(aes(mix_n, fill = mix_n_pred)) +
@@ -336,15 +331,14 @@ trio_by_depth <-
   filter(mix_n != 2) %>% 
   group_by(method, depth) %>%
   summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
-            MAE = 1-MAE(prop_3, prop_3_pred),
+            `1-MAE` = 1-MAE(prop_3, prop_3_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
   pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE),
                names_to = 'measure') %>% 
-  mutate(measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
   mutate(measure = factor(measure, 
                           c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
-  mutate(method = factor(method, rev(levels(bimix_tbl_pooled$method))))
+  mutate(method = factor(method, rev(levels(is_duo_bench_metrics$method))))
 
 
 trio_by_depth %>% 
@@ -358,5 +352,31 @@ trio_by_depth %>%
   # scale_shape_manual(values = c(8:9, 15:18)) +
   ylab('value') +
   ggtitle('trio by depth')
+
+```
+
+
+```{r}
+runtime_smry <-
+  nxf_trace %>% 
+  group_by(method, process, id) %>% 
+  summarise(across(c(realtime, duration, percent_cpu), median),
+            .groups = 'drop') %>% 
+  mutate(cpu_min = (percent_cpu * realtime / 100)/(60)) %>% 
+  group_by(method) %>% 
+  summarise(cpu_min_per_sample = sum(cpu_min) / 100) 
+
+saveRDS(runtime_smry, '05/runtime_smry.rds')
+
+runtime_smry %>% 
+  arrange(desc(cpu_min_per_sample)) %>% 
+  mutate(method = as_factor(as.character(method))) %>% 
+  ggplot(aes(method, cpu_min_per_sample)) +
+  geom_col(aes(fill = method), show.legend = F) +
+  geom_label(aes(label = format(round(cpu_min_per_sample, 2))),
+             hjust = 0, width = 0.1) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 16)) +
+  ggtitle('Average runtimes across methodolgies')
 
 ```

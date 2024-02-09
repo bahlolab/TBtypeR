@@ -1,0 +1,161 @@
+---
+title: "TB in vitro mixture dataset"
+output: 'github_document'
+---
+
+
+```{r setup}
+library(tidyverse)
+
+table_1 <- readRDS('table_1.rds')
+method_order <- table_1 %>% pull(method) %>% discard(str_detect, '\\(')
+bimix_tbl <- readRDS('05/bimix_tbl.rds')
+
+is_duo_by_depth <- readRDS('05/is_duo_by_depth.rds')
+is_duo_by_mp <- readRDS('05/is_duo_by_mp.rds')
+is_duo_by_dist <- readRDS('05/is_duo_by_dist.rds')
+
+is_trio_accuracy <- readRDS('05/is_trio_accuracy.rds')
+```
+
+
+
+```{r panel_A}
+
+panel_A <-
+  bind_rows(
+  is_duo_by_depth %>% 
+    filter(measure %in% c('nMCC', '1-MAE')) %>% 
+    mutate(x_name = 'Coverage') %>% 
+    rename(x_value = depth,
+           y_value = value,
+           y_name = measure),
+  is_duo_by_mp %>% 
+    filter(measure %in% c('nMCC', '1-MAE')) %>% 
+    mutate(x_name = 'Minor Percent') %>% 
+    rename(x_value = minor_percent,
+           y_value = value,
+           y_name = measure),
+  is_duo_by_dist %>% 
+    filter(measure %in% c('nMCC', '1-MAE')) %>% 
+    mutate(x_name = 'Distance Bin') %>% 
+    rename(x_value = dist_bin,
+           y_value = value,
+           y_name = measure)) %>% 
+  filter(method %in% method_order) %>%
+  mutate(
+    y_name = factor(y_name, c('nMCC', '1-MAE')),
+    x_name = factor(x_name, c('Coverage', 'Minor Percent', 'Distance Bin')),
+  ) %>% 
+  ggplot(aes(
+    x = x_value, 
+    y = y_value,
+    colour = method,
+    shape = method)) +
+  geom_line(alpha = 1) +
+  geom_point() +
+  facet_grid(
+    rows = vars(y_name), cols = vars(x_name),
+    scales = 'free',
+    switch = 'both') +
+  theme(axis.title = element_blank())
+
+panel_A
+```
+
+```{r panel_B}
+breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
+
+panel_B <-
+  bimix_tbl %>% 
+  filter(method %in% method_order) %>% 
+  filter(is_mixed) %>% 
+  filter(!is.na(minor_percent_pred)) %>% 
+  mutate(method = factor(method, method_order)) %>% 
+  ggplot(aes(
+    x=minor_percent, 
+    y=minor_percent_pred, 
+    group = minor_percent
+  )) +
+  geom_abline(col = 'red') +
+  geom_boxplot(
+    fill = NA,
+    outlier.alpha = 0.5,
+    size = 0.5
+  ) +
+  scale_x_continuous(
+    trans = 'log2',
+    breaks = breaks, 
+    minor_breaks = NULL) +
+  scale_y_continuous(
+    trans = 'log2',
+    breaks = breaks,
+    minor_breaks = NULL) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
+  coord_fixed() +
+  facet_wrap(~method, nrow = 1) +
+  labs(x = 'Minor Strain Percentage',
+       y = 'Predicted Percentage')
+
+panel_B
+```
+
+```{r panel_C}
+panel_C <-
+  is_trio_accuracy %>% 
+  filter(method %in% method_order) %>% 
+  mutate(method = factor(method, method_order)) %>% 
+  arrange(method) %>% 
+  mutate(label = str_c(method, '\naccuracy=', format(round(accuracy, 2)))) %>% 
+  mutate(label = as_factor(label)) %>% 
+  group_by(label, mix_n, mix_n_pred) %>% 
+  count() %>% 
+  group_by(label, mix_n) %>% 
+  mutate(percent = 100 * n / sum(n)) %>% 
+  ungroup() %>% 
+  # mutate(mix_n_pred = ordered(mix_n_pred, 3:1)) %>%
+  ggplot(aes(
+    x = mix_n,
+    y = percent,
+    fill = mix_n_pred)) +
+  geom_col() +
+  facet_wrap(~label, nrow = 1) +
+  coord_flip() +
+  guides(fill = guide_legend(title = 'No. Strains\nPredicted')) +
+  labs(x = 'No. Strains', y = 'Percent')
+panel_C
+```
+
+```{r fig.height=8, fig.width=8}
+nomar <- theme(
+  plot.margin = margin(t=0,b=0,r=0,l=0),
+  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0)))
+
+cowplot::plot_grid(
+  panel_A + ggtitle('A.') + nomar,
+  panel_B + ggtitle('B.') + nomar,
+  panel_C + ggtitle('C.') + nomar,
+  ncol = 1,
+  rel_heights = c(8,5,4),
+  align = 'v',
+  axis = 'lr'
+)
+```
+
+```{r fig.height=8, fig.width=8}
+# library(patchwork)
+# nomar <- theme(
+#   plot.margin = margin(t=0,b=0,r=0,l=0),
+#   plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0)))
+# 
+# (panel_A + ggtitle('A.') + nomar) + 
+#   plot_spacer() +
+#   (panel_B + ggtitle('B.') + nomar) +
+#   plot_spacer() +
+#   (panel_C + ggtitle('C.') + nomar) +
+#   plot_layout(
+#     ncol = 1, 
+#     heights = c(9,-0.2,3,-0.2,2.2),
+#   )
+
+```

@@ -6,15 +6,74 @@ output: 'github_document'
 
 ```{r setup}
 library(tidyverse)
-iv_bench_metrics <- readRDS('03/iv_bench_metrics.rds')
+
+iv_bench_metrics <- readRDS('03/iv_bench_metrics.rds') %>% mutate(method = as.character(method))
+is_duo_bench_metrics <- readRDS('05/is_duo_bench_metrics.rds') %>% mutate(method = as.character(method))
+is_trio_bench_metrics <- readRDS('05/is_trio_bench_metrics.rds') %>% mutate(method = as.character(method))
+runtime_smry <- readRDS('05/runtime_smry.rds')
 ```
 
 ```{r}
-iv_bench_metrics %>% 
-  select(method, nMCC, sensitivity = recall, specificity, `1-MAE`) %>% 
-  mutate(across(where(is.numeric), ~ format(round(., 3)))) %>% 
-  writexl::write_xlsx('Table1.xlsx')
+cols <- c('method', 'nMCC', '1-MAE')
+
+table_1 <-
+  runtime_smry %>%
+  inner_join(
+    iv_bench_metrics %>% 
+      select(all_of(cols)),
+    by = 'method',
+  ) %>%
+  inner_join(
+    is_duo_bench_metrics %>%
+      select(all_of(cols)),
+    by = 'method',
+    suffix = c('', '_is_duo')
+  ) %>%
+  inner_join(
+    is_trio_bench_metrics %>%
+      select(all_of(cols)),
+    by = 'method',
+    suffix = c('_iv', '_is_trio')
+  ) %>% 
+  mutate(across(contains('MAE'), ~ 1 - .)) %>% 
+  rename_with(~ str_remove(., '1-')) %>% 
+  mutate(cpu_sec = cpu_min_per_sample * 60) %>% 
+  select(-cpu_min_per_sample) %>% 
+  pivot_longer(-method) %>% 
+  arrange(name, method) %>% 
+  group_by(name) %>% 
+  mutate(
+    score = (value - min(value)) / (max(value) - min(value)),
+    score = if_else(str_detect(name, 'nMCC'), score, 1-score),
+    rank = rank(desc(score), ties.method = 'min')
+  ) %>% 
+  group_by(method) %>% 
+  mutate(comb_score = mean(score)) %>% 
+  ungroup() %>% 
+  chop(-c(method, comb_score)) %>% 
+  mutate(comb_rank = rank(desc(comb_score),  ties.method = 'min'),
+         .before = comb_score) %>% 
+  arrange(comb_rank) %>% 
+  mutate(comb_score = str_c(format(comb_score, digits = 3), ' (', comb_rank, ')')) %>% 
+  select(-score, -comb_rank) %>% 
+  rename(score = comb_score) %>% 
+  unchop(-c(method, score)) %>% 
+  mutate(value = if_else(str_detect(name, 'MAE'), round(value, 3), value)) %>% 
+  mutate(value = if_else(str_detect(name, 'cpu'), round(value, 2), value)) %>% 
+  group_by(name) %>% 
+  mutate(value = str_c(format(value, digits = 3), ' (', rank, ')')) %>% 
+  ungroup() %>% 
+  select(-rank) %>% 
+  pivot_wider(names_from = name, values_from = value) %>% 
+  mutate(cpu_sec = cpu_sec %>%
+           str_remove('^\\s+') %>% 
+           str_pad(width = max(nchar(cpu_sec)), side = 'left', pad = '0')) %>% 
+  select(method, score, nMCC_iv, MAE_iv, nMCC_is_duo, MAE_is_duo, nMCC_is_trio, MAE_is_trio, cpu_sec)
+
+saveRDS(table_1, 'table_1.rds')
+writexl::write_xlsx(table_1, 'Table1.xlsx')
 ```
+
 
 
 
