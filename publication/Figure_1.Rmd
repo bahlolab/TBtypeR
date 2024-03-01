@@ -1,0 +1,160 @@
+---
+title: "Fig 1"
+output: 'github_document'
+---
+
+
+```{r setup}
+library(tidyverse)
+
+table_1 <- readRDS('table_1.rds')
+method_order <- table_1 %>% pull(method) %>% discard(str_detect, '\\(')
+method_mae_label <- table_1 %>% select(method, MAE = MAE_is_duo) %>% 
+  mutate(MAE = str_extract(MAE, '[0-9\\.]+') %>% as.numeric()) %>% 
+  filter(method %in% method_order) %>% 
+  mutate(label = as_factor(str_c(method, '\nMAE=', format(MAE))))
+bimix_tbl <- readRDS('05/bimix_tbl.rds')
+
+is_duo_by_depth <- readRDS('05/is_duo_by_depth.rds')
+is_duo_by_mp <- readRDS('05/is_duo_by_mp.rds')
+is_duo_by_dist <- readRDS('05/is_duo_by_dist.rds')
+
+is_trio_accuracy <- readRDS('05/is_trio_accuracy.rds')
+```
+
+
+```{r panel_A}
+# drop MAE as kind of redundant
+panel_A <-
+  bind_rows(
+  is_duo_by_depth %>% 
+    filter(measure %in% c('nMCC')) %>% 
+    mutate(x_name = 'Coverage') %>% 
+    rename(x_value = depth,
+           nMCC = value),
+  is_duo_by_mp %>% 
+    filter(measure %in% c('nMCC')) %>% 
+    mutate(x_name = 'MSF (%)') %>% 
+    rename(x_value = minor_percent,
+           nMCC = value),
+  is_duo_by_dist %>% 
+    filter(measure %in% c('nMCC')) %>% 
+    mutate(x_name = 'SNP Distance Bin') %>% 
+    rename(x_value = dist_bin,
+           nMCC = value)) %>% 
+  filter(method %in% method_order) %>%
+  mutate(
+    x_name = factor(x_name, c('Coverage', 'MSF (%)', 'SNP Distance Bin')),
+    method = factor(method, method_order)
+  ) %>% 
+  ggplot(aes(
+    x = x_value, 
+    y = nMCC,
+    colour = method,
+    shape = method)) +
+  geom_line(alpha = 1) +
+  geom_point() +
+  facet_grid(
+    cols = vars(x_name),
+    scales = 'free',
+    switch = 'both') +
+  guides(color = guide_legend(title = 'Tool'),
+         shape = guide_legend(title = 'Tool')) +
+  theme(axis.title.x = element_blank()) + 
+  ggh4x::facetted_pos_scales(
+    x = list(NULL,
+             scale_x_continuous(trans = 'log2',
+                                breaks = c(1, 2.5, 5, 10, 25, 50),
+                                minor_breaks = NULL), 
+             NULL))
+  # scale_color_brewer(palette = 'Dark2')
+
+panel_A
+```
+
+```{r panel_B}
+breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
+
+panel_B <-
+  bimix_tbl %>% 
+  filter(method %in% method_order) %>% 
+  filter(is_mixed) %>% 
+  filter(!is.na(minor_percent_pred)) %>% 
+  left_join(method_mae_label, by = 'method')  %>% 
+  # mutate(method = factor(method, method_order)) %>% 
+  ggplot(aes(
+    x=minor_percent, 
+    y=minor_percent_pred, 
+    group = minor_percent
+  )) +
+  geom_abline(col = 'red') +
+  geom_boxplot(
+    fill = NA,
+    outlier.alpha = 0.5,
+    size = 0.5
+  ) +
+  scale_x_continuous(
+    trans = 'log2',
+    breaks = breaks, 
+    minor_breaks = NULL) +
+  scale_y_continuous(
+    trans = 'log2',
+    breaks = breaks,
+    minor_breaks = NULL) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
+  coord_fixed() +
+  facet_wrap(~label, nrow = 1) +
+  labs(x = 'MSF (%)',
+       y = 'Predicted MSF (%)') 
+
+panel_B
+```
+
+```{r panel_C}
+panel_C <-
+  is_trio_accuracy %>% 
+  filter(method %in% method_order) %>% 
+  mutate(method = factor(method, method_order)) %>% 
+  arrange(method) %>% 
+  mutate(label = str_c(method, '\naccuracy=', format(round(accuracy, 2)))) %>% 
+  mutate(label = as_factor(label)) %>% 
+  group_by(label, mix_n, mix_n_pred) %>% 
+  count() %>% 
+  group_by(label, mix_n) %>% 
+  mutate(percent = 100 * n / sum(n)) %>% 
+  ungroup() %>% 
+  # mutate(mix_n_pred = ordered(mix_n_pred, 3:1)) %>%
+  ggplot(aes(
+    x = mix_n,
+    y = percent,
+    fill = mix_n_pred)) +
+  geom_col() +
+  facet_wrap(~label, nrow = 1) +
+  coord_flip() +
+  guides(fill = guide_legend(title = 'No. Strains\nPredicted')) +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.justification = 'top') +
+  labs(x = 'No. Strains', y = 'Percent')
+panel_C
+```
+
+
+```{r fig1, fig.height=5.5, fig.width=8}
+nomar <- theme(
+  plot.margin = margin(t=0,b=0,r=0,l=0),
+  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
+)
+
+cowplot::plot_grid(
+  panel_A + ggtitle('A.') + nomar,
+  panel_B   + ggtitle('B.') + nomar,
+  panel_C   + ggtitle('C.') + nomar + 
+    theme(legend.justification = 'top') + guides(fill=guide_legend(ncol=2, title = 'Pred. No.')),
+  ncol = 1,
+  rel_heights = c(10,10,7),
+  align = 'v',
+  axis = 'lr'
+)
+```
+
+
