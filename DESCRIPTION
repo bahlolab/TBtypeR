@@ -1,0 +1,58 @@
+Package: TBtypeR
+Title: Mycobacterium Tuberculosis Phylotyping and Mixture Detection from WGS SNP data
+Version: 24.05.0
+Authors@R: 
+    person(given = "Jacob",
+           family = "Munro",
+           role = c("aut", "cre"),
+           email = "munro.j@wehi.edu.au",
+           comment = c(ORCID = "0000-0002-2751-0989"))
+Description: Mycobacterium Tuberculosis phylotyping from WGS SNP data.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+ByteCompile: true
+Imports:
+    GenomicRanges,
+    dplyr,
+    furrr,
+    future,
+    ggplot2,
+    magrittr,
+    purrr,
+    rlang,
+    rmarkdown,
+    stringr,
+    tidyr,
+    tidytree,
+    treeio,
+    ape,
+    SeqVarTools,
+    IRanges,
+    pracma,
+    assertthat,
+    Rsamtools,
+    rtracklayer,
+    parallelDist,
+    RcppXPtrUtils,
+    RcppArmadillo,
+    ggfittext,
+    phangorn,
+    ggtree,
+    readr,
+    SeqArray,
+    tibble,
+    BSgenome,
+    Biostrings,
+    DT,
+    cowplot,
+    digest,
+    forcats,
+    knitr,
+    memoise,
+    scales
+RoxygenNote: 7.2.3
+Suggests: 
+    testthat (>= 2.1.0)
+Depends: 
+    R (>= 2.10)

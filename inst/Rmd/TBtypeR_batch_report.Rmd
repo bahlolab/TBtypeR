@@ -1,0 +1,61 @@
+---
+title: "`r .Primitive('if')(exists('report_title'), report_title, 'TBtypeR Batch Report')`"
+date: "`r date()`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE)
+require(TBtypeR)
+require(dplyr)
+require(ggplot2)
+require(tidyr)
+require(tibble)
+require(purrr)
+require(magrittr)
+require(assertthat)
+
+assert_that(
+  exists('tbt_res') && is.data.frame(tbt_res),
+  exists('snp_dist') && inherits(snp_dist, 'dist'),
+  exists('sample_meta') && (is.null(sample_meta) || is.data.frame(sample_meta))
+)
+phy_pal <- TBtypeR::tbt_palette(tbt_res$mix_phylotype %>% unlist())
+```
+
+### Phylotype Distribution
+```{r phy_dist}
+plot_phylotype_distribution(tbt_res, phy_pal = phy_pal)
+```
+
+### Sample Phylotype Mixtures Table
+
+```{r sm_phy_mix_tab}
+tbt_res %>% 
+  unnest_mixtures() %>% 
+  select(sample = sample_id,
+         mix_n = n_phy,
+         phylotype = mix_phylotype,
+         mix_prop) %>% 
+  TBtypeR:::data_table()
+```
+
+### Sample Phylotype SNP-Distance Heatmap
+```{r plylo_heatmat, fig.width=8, fig.height=8}
+plot_phylotype_heatmap(tbt_res=tbt_res, snp_dist, log_scale = F)
+```
+
+### SNP Distance Table
+```{r snp_dist_tab}
+snp_dist %>% 
+  as.matrix() %>% 
+  as.data.frame() %>% 
+  rownames_to_column('sample_1') %>% 
+  pivot_longer(-sample_1, names_to = 'sample_2', values_to = 'dist') %>% 
+  TBtypeR:::data_table()
+```

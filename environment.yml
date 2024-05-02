@@ -1,0 +1,32 @@
+name: base
+channels:
+    - conda-forge
+    - bioconda
+dependencies:
+    - r >= 4.2
+    - r-tidyverse
+    - r-docopt
+    - r-devtools
+    - r-abind
+    - r-cowplot
+    - r-rcpparmadillo
+    - r-ggfittext
+    - r-furrr
+    - r-tidytree
+    - r-ape
+    - r-pracma
+    - r-assertthat
+    - r-paralleldist
+    - r-phangorn
+    - r-dt
+    - r-digest
+    - r-forcats
+    - r-memoise
+    - bioconductor-biostrings
+    - bioconductor-bsgenome
+    - bioconductor-ggtree
+    - bioconductor-rsamtools
+    - bioconductor-treeio
+    - bioconductor-seqvartools
+    - bioconductor-genomicranges
+    - bioconductor-rtracklayer
