@@ -1,0 +1,161 @@
+---
+title: "Runtime benchmarks"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+source('functions.R')
+ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+```
+
+* Run benchmarking pipeline 5 times on subset of 100 samples (50 mixed at 50%, 50 unmixed) with depth 60
+
+```{r prep_benchmark_time, eval=FALSE}
+if (!dir.exists('04_data/benchmark_time')) {
+  dir.create('04_data/benchmark_time')
+}
+# copy nextflow config
+file.copy('benchmark_default.config', '04_data/benchmark_time/nextflow.config')
+# copy ref
+file.copy(ref_fn, '04_data/benchmark_time/')
+# create manifest
+read_tsv('02_data/gen_mix/output/output_manifest.tsv') %>% 
+  rename(sample = id) %>% 
+  arrange_all() %>% 
+  filter(sample %in% {
+    in_silico_dataset %>% 
+      filter(depth == 60,
+             str_detect(id, 'PAIR'),
+             prop_1 == 0.50) %>% 
+      with(c(id, str_replace_all(id, 'PAIR', 'SING')))
+  }) %>% 
+  arrange_all() %>% 
+  write_tsv('04_data/benchmark_time/manifest.tsv')
+```
+
+```{bash run_benchmark_time, eval=FALSE}
+cd "04_data/benchmark_time"
+nextflow run ../../../TBtypeNF/main.nf -with-trace trace-default-1.txt
+nextflow run ../../../TBtypeNF/main.nf -with-trace trace-default-2.txt
+nextflow run ../../../TBtypeNF/main.nf -with-trace trace-default-3.txt
+nextflow run ../../../TBtypeNF/main.nf -with-trace trace-default-4.txt
+nextflow run ../../../TBtypeNF/main.nf -with-trace trace-default-5.txt
+```
+
+* Run again with tool variations
+
+```{r prep_benchmark_time_var, eval=FALSE}
+# copy nextflow config
+file.copy('benchmark_variation.config', '04_data/benchmark_time/nextflow.config', overwrite = T)
+```
+
+```{bash run_benchmark_time_var, eval=FALSE}
+cd "04_data/benchmark_time"
+nextflow run ../../TBtypeNF/main.nf -with-trace trace-var-1.txt
+nextflow run ../../TBtypeNF/main.nf -with-trace trace-var-2.txt
+nextflow run ../../TBtypeNF/main.nf -with-trace trace-var-3.txt
+nextflow run ../../TBtypeNF/main.nf -with-trace trace-var-4.txt
+nextflow run ../../TBtypeNF/main.nf -with-trace trace-var-5.txt
+```
+
+* Import Nextflow trace files
+
+```{r import_nxf_trace, eval=FALSE}
+to_seconds <- function(x) {
+  tibble(
+    h = str_extract(x, '[0-9\\.]+(?=h)'),
+    m = str_extract(x, '[0-9\\.]+(?=m(\\s|$))'),
+    s = str_extract(x, '[0-9\\.]+(?=s)'),
+    ms = str_extract(x, '[0-9\\.]+(?=ms)')) %>% 
+    mutate(across(everything(), ~ replace_na(as.numeric(.), 0))) %>% 
+    mutate(h = 60*60*h,
+           m = 60*m,
+           ms = ms /1000) %>% 
+    rowSums()
+}
+
+to_giga <- function(x) {
+    mult <- case_when(
+      str_detect(x, ' GB') ~ 1000**0,
+      str_detect(x, ' MB') ~ 1000**-1,
+      str_detect(x, ' KB') ~ 1000**-2,
+      str_detect(x, ' B')  ~ 1000**-3,
+      TRUE ~ NA_real_
+    )
+    as.numeric(str_extract(x, '[0-9\\.]+'))*mult
+}
+# duration/realtime in secounds
+# peak_rss, peak_vmem, rchar, wchar in GB
+read_trace <- function(nxf_trace_file) {
+  read_tsv(nxf_trace_file, col_types = cols()) %>%
+  janitor::clean_names() %>%
+  mutate(
+    across(c(duration, realtime), to_seconds),
+    percent_cpu = str_remove(percent_cpu, '%') %>% as.numeric(),
+    across(c(peak_rss, peak_vmem, rchar, wchar), to_giga)
+  ) %>%
+  mutate(
+    method = str_extract(name, '(?<=Benchmark:).+(?=:)'),
+    process = str_extract(name, '(?<=Benchmark:[^:]{1,20}:)[^\\s]+'),
+    id = str_extract(name, '(?<=\\().+(?=\\))'),
+    .after = name
+  ) %>%
+  select(method, process, id, duration, realtime, percent_cpu, peak_rss, peak_vmem, rchar, wchar) %>%
+  arrange(method, process, id)
+  # mutate(across(c(tool, process, id), as.factor)) %>%
+}
+
+ 
+nxf_trace <-
+  bind_rows(
+    list.files('04_data/benchmark_time', pattern = 'trace-var-', full.names = T) %>% 
+      map_df(read_trace)  %>% 
+      mutate(method = if_else(
+        method == 'FastTBtypeNF',
+        'FastTBtypeR',
+        str_c(method, ' (+TBT)'))),
+    list.files('04_data/benchmark_time', pattern = 'trace-default-', full.names = T) %>% 
+      map_df(read_trace) %>% 
+      mutate(method = if_else(
+        str_detect(method, 'TBtypeNF'),
+        'TBtypeR',
+        method))
+  ) %>% 
+  filter(!is.na(method))
+
+saveRDS(nxf_trace, '04_data/nxf_trace.rds')
+  
+```
+* Summarise runtimes
+
+```{r, eval=FALSE}
+nxf_trace <- readRDS('04_data/nxf_trace.rds')
+
+runtime_smry <-
+  nxf_trace %>% 
+  group_by(method, process, id) %>% 
+  summarise(across(c(realtime, duration, percent_cpu), median),
+            .groups = 'drop') %>% 
+  mutate(cpu_min = (percent_cpu * realtime / 100)/(60)) %>% 
+  group_by(method) %>% 
+  summarise(cpu_min_per_sample = sum(cpu_min) / 100) 
+
+saveRDS(runtime_smry, '04_data/runtime_smry.rds')
+```
+
+
+```{r}
+readRDS('04_data/runtime_smry.rds') %>% 
+  arrange(desc(cpu_min_per_sample)) %>% 
+  mutate(method = as_factor(as.character(method))) %>% 
+  ggplot(aes(method, cpu_min_per_sample)) +
+  geom_col(aes(fill = method), show.legend = F) +
+  geom_label(aes(label = format(round(cpu_min_per_sample, 2))),
+             hjust = 0) +
+  coord_flip() +
+  scale_y_continuous(limits = c(0, 16)) +
+  ggtitle('Average runtime per 60X sample')
+```
+
+

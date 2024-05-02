@@ -1,0 +1,193 @@
+---
+title: "Fig 1"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+nMCC_to_MCC <- function(x) { rename(x, MCC = nMCC) %>% mutate(MCC = MCC*2 - 1) }
+
+bimix_tbl <- readRDS('03_data/bimix_tbl.rds')
+
+is_duo_by_depth <- readRDS('03_data/is_duo_by_depth.rds') 
+is_duo_by_mp <- readRDS('03_data/is_duo_by_mp.rds')
+is_duo_by_dist <- readRDS('03_data/is_duo_by_dist.rds')
+
+is_trio_accuracy <- readRDS('03_data/is_trio_accuracy.rds')
+
+table_1 <- readRDS('07_data/table_1.rds')
+
+method_order <- 
+  table_1 %>%
+  pull(method) %>% 
+  discard(str_detect, '\\(') %>% 
+  discard(str_detect, 'FastTB')
+
+method_mae_label <-
+  table_1 %>% 
+  select(method, MAE = MAE_is_duo) %>% 
+  mutate(MAE = str_extract(MAE, '[0-9\\.]+') %>%
+           as.numeric()) %>% 
+  filter(method %in% method_order) %>% 
+  mutate(label = as_factor(str_c(method, '\nMAE=', format(MAE))))
+```
+
+
+```{r panel_A}
+panel_A <-
+  bind_rows(
+  is_duo_by_depth %>% 
+    filter(measure %in% c('nMCC')) %>% 
+    mutate(x_name = 'Coverage') %>% 
+    rename(x_value = depth,
+           nMCC = value),
+  is_duo_by_mp %>% 
+    filter(measure %in% c('nMCC')) %>% 
+    mutate(x_name = 'MSF (%)') %>% 
+    rename(x_value = minor_percent,
+           nMCC = value),
+  is_duo_by_dist %>% 
+    filter(measure %in% c('nMCC')) %>% 
+    mutate(x_name = 'SNP Distance Bin') %>% 
+    rename(x_value = dist_bin,
+           nMCC = value)) %>% 
+  filter(method %in% method_order) %>%
+  mutate(method = factor(method, method_order)) %>% 
+  nMCC_to_MCC() %>% 
+  select(method, x_name, x_value, MCC) %>% 
+  ggplot(aes(
+    x = x_value, 
+    y = MCC,
+    colour = method,
+    shape = method)) +
+  geom_line(alpha = 1) +
+  geom_point() +
+  facet_grid(
+    cols = vars(x_name),
+    scales = 'free',
+    switch = 'both') +
+  guides(color = guide_legend(title = 'Tool'),
+         shape = guide_legend(title = 'Tool')) +
+  theme(axis.title.x = element_blank()) + 
+  scale_y_continuous(breaks = seq(0, 1, by=0.2)) +
+  ggh4x::facetted_pos_scales(
+    x = list(NULL,
+             scale_x_continuous(trans = 'log2',
+                                breaks = c(1, 2.5, 5, 10, 25, 50),
+                                minor_breaks = NULL), 
+             NULL))
+# saveRDS(panel_A$data, '08_data/fig_1A_data.rds')
+# panel_A
+```
+
+```{r panel_B}
+breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
+
+mae_smry <- 
+  bimix_tbl %>% 
+  filter(method %in% method_order) %>% 
+  filter(is_mixed) %>% 
+  filter(minor_percent_pred > 0) %>% 
+  group_by(method, minor_percent) %>% 
+  summarise(MAE = median(abs(minor_percent_pred - minor_percent)) %>% round(2),
+            status = case_when(
+              MAE < 2 ~ 'MAE < 2%',
+              MAE < 5 ~ 'MAE < 5%',
+              TRUE    ~ 'MAE ≥ 5%') %>% 
+              ordered(c('MAE < 2%', 'MAE < 5%', 'MAE ≥ 5%'))) %>% 
+  select(-MAE) %>% 
+  ungroup()
+
+panel_B <-
+  bimix_tbl %>% 
+  filter(method %in% method_order) %>% 
+  filter(is_mixed) %>% 
+  filter(minor_percent_pred > 0) %>% 
+  left_join(mae_smry, by = join_by(method, minor_percent)) %>% 
+  mutate(method = factor(method, method_order)) %>%
+  select(method, status, id, minor_percent, minor_percent_pred) %>% 
+  arrange(method, id) %>% 
+  ggplot(aes(
+    x=minor_percent, 
+    y=minor_percent_pred, 
+    group = minor_percent,
+    col = status
+  )) +
+  geom_abline(col = 'red') +
+  geom_boxplot(
+    fill = NA,
+    outlier.alpha = 0.5,
+    size = 0.5,
+    outlier.size = 1
+  ) +
+  scale_x_continuous(
+    trans = 'log2',
+    breaks = breaks,
+    minor_breaks = NULL) +
+  scale_y_continuous(
+    trans = 'log2',
+    breaks = breaks,
+    minor_breaks = NULL) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
+  coord_fixed() +
+  facet_wrap(~method, nrow = 1) +
+  labs(x = 'MSF (%)',
+       y = 'Predicted MSF (%)') +
+  scale_color_viridis_d(begin = 0, end = 0.7, direction = -1)
+
+# saveRDS(panel_B$data, '08_data/fig_1B_data.rds')
+# panel_B
+```
+
+```{r panel_C}
+panel_C <-
+  is_trio_accuracy %>% 
+  filter(method %in% method_order) %>% 
+  mutate(method = factor(method, method_order)) %>% 
+  arrange(method) %>% 
+  mutate(label = str_c(method, '\naccuracy=', format(round(accuracy, 2)))) %>% 
+  mutate(label = as_factor(label)) %>% 
+  group_by(label, mix_n, mix_n_pred) %>% 
+  count() %>% 
+  group_by(label, mix_n) %>% 
+  mutate(percent = 100 * n / sum(n)) %>% 
+  ungroup() %>% 
+  select(label, mix_n, mix_n_pred, percent) %>% 
+  ggplot(aes(
+    x = mix_n,
+    y = percent,
+    fill = mix_n_pred)) +
+  geom_col() +
+  facet_wrap(~label, nrow = 1) +
+  coord_flip() +
+  guides(fill = guide_legend(title = 'No. Strains\nPredicted')) +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.justification = 'top') +
+  labs(x = 'No. Strains', y = 'Percent')
+# saveRDS(panel_C$data, '08_data/fig_1C_data.rds')
+# panel_C
+```
+
+
+```{r fig1, fig.height=5.5, fig.width=8}
+nomar <- theme(
+  plot.margin = margin(t=0,b=0,r=0,l=0),
+  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
+)
+
+suppressWarnings(
+  cowplot::plot_grid(
+    panel_A + ggtitle('A.') + nomar,
+    panel_B   + ggtitle('B.') + nomar,
+    panel_C   + ggtitle('C.') + nomar + 
+      theme(legend.justification = 'top') + guides(fill=guide_legend(ncol=2, title = 'Pred. No.')),
+    ncol = 1,
+    rel_heights = c(10,10,7),
+    align = 'v',
+    axis = 'lr'
+  )
+)
+```
+
+

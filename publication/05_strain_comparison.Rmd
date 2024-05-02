@@ -1,0 +1,108 @@
+---
+title: "TB in vitro mixture dataset"
+output: 'github_document'
+---
+
+
+```{r setup}
+library(tidyverse)
+bench_res_raw <- read_rds('03_data/bench_res_raw.rds')
+in_silico_dataset <- read_rds('02_data/in_silico_dataset.rds') 
+```
+
+```{r sing_lin_wide, eval=FALSE}
+# Q1: how similar are methods for non-mixed samples?
+sing_lin <-
+  bench_res_raw %>% 
+  filter(str_detect(method, 'Fastlin|TBtypeR|TBProfiler'),
+         !str_detect(method, '\\+FL')) %>% 
+  inner_join(
+    in_silico_dataset %>% 
+      filter(prop_2 == 0) %>% 
+      select(id, sample_1) %>% 
+      group_by(sample_1) %>% 
+      slice(1) %>% 
+      ungroup() %>% 
+      rename(sample = id, accession = sample_1),
+    by = 'sample'
+  ) %>% 
+  group_by(sample) %>% 
+  filter(all(proportion == 1)) %>% 
+  ungroup() %>% 
+  select(-proportion)
+
+remap_names <- function(x, panel, renamed_panel) {
+  old <- with(panel, unique(c(phylotype, parent_phylotype)))
+  names(old) <- with(renamed_panel, unique(c(phylotype, parent_phylotype)))
+  unname(old[x])
+}
+
+sing_lin_wide <-
+  sing_lin %>% 
+  pivot_wider(names_from = method, values_from = strain) %>% 
+  mutate(
+    `Fastlin (+TBT)` = remap_names(
+      `Fastlin (+TBT)`,
+      TBtypeR::tbt_panel,
+      TBtypeR:::rename_panel_fastlin(TBtypeR::tbt_panel)),
+    `TBProfiler (+TBT)` = remap_names(
+      `TBProfiler (+TBT)`,
+      TBtypeR::tbt_panel,
+      TBtypeR:::rename_panel_tbprofiler(TBtypeR::tbt_panel))
+  ) %>% 
+  select(accession, TBtypeR, starts_with('TBProfiler'), starts_with('Fastlin'))
+
+# saveRDS(sing_lin_wide, '05_data/sing_lin_wide.rds')
+```
+
+```{r}
+# AKA Table S1
+sing_lin_wide <- readRDS('05_data/sing_lin_wide.rds')
+```
+
+```{r tbprofiler_v_Fastlin}
+# compare TBProfiler and Fastlin lineage assignement
+tbp_fl_p <-
+  sing_lin_wide %>% 
+  count(agree = TBProfiler == Fastlin) %>% 
+  mutate(p = 100 * n / sum(n)) %>% filter(agree) %>% pull(p) %>% round(1)
+
+message('TBProfiler and Fastlin agree ', tbp_fl_p, '%')
+```
+```{r}
+# Compare TBtypeR and TBprofile lineage assignments
+sing_lin_status <-
+  sing_lin_wide %>% 
+  pivot_longer(c(-accession, -TBtypeR),
+               names_to = 'method',
+               values_to = 'strain') %>% 
+  mutate(status = case_when(
+    TBtypeR == strain           ~ 'agrees',
+    str_starts(TBtypeR, strain) ~ 'less detailed',
+    str_starts(strain, TBtypeR) ~ 'more detailed',
+    TRUE                        ~ 'other'
+  ))
+
+sing_lin_status_p <-
+  sing_lin_status %>% 
+  count(method, status) %>% 
+  group_by(method) %>% 
+  mutate(p = 100 * n / sum(n))
+
+sing_lin_status_p %>% 
+  filter(method == 'TBProfiler') %>% 
+  with(str_c('TBProfiler ', status,' ', round(p, 1), '%', '\n')) %>% 
+  message()
+
+sing_lin_status_p %>% 
+  filter(method == 'TBProfiler', str_detect(status, 'detailed'))
+
+sing_lin_status_p %>% 
+  filter(method == 'TBProfiler', status == 'other')
+
+sing_lin_status %>% 
+  filter(method == 'TBProfiler', status == 'other') %>% 
+  count(TBtypeR, strain) %>% 
+  arrange(desc(n)) 
+
+```

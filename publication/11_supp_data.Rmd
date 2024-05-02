@@ -1,0 +1,39 @@
+---
+title: "Supp Data"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+fig_1A_data <- readRDS('08_data/fig_1A_data.rds')
+fig_1B_data <- readRDS('08_data/fig_1B_data.rds')
+fig_1C_data <- readRDS('08_data/fig_1C_data.rds')
+
+fig_2A_data <- readRDS('09_data/fig_2A_data.rds')
+fig_2B_data <- readRDS('09_data/fig_2B_data.rds')
+
+fig_S1_data <- readRDS('10_data/fig_S1_data.rds')
+```
+
+```{r table_s1}
+table_s1 <- 
+  readRDS('05_data/sing_lin_wide.rds') %>% 
+  rename(Accession = accession)
+```
+
+```{r}
+writexl::write_xlsx(
+  list(
+    `Table S1` = table_s1,
+    `Figure 1A Data` = fig_1A_data,
+    `Figure 1B Data` = fig_1B_data,
+    `Figure 1C Data` = fig_1C_data,
+    `Figure 2A Data` = fig_2A_data,
+    `Figure 2B Data` = fig_2B_data,
+    `Figure S1 Data` = fig_S1_data
+    ),
+  '11_data/TBtypeR_supplementary_data.xlsx'
+)
+```
+

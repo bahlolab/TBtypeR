@@ -1,0 +1,332 @@
+---
+title: "In silico mixture dataset preparation"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+samples_meta <- read_rds('02_data/nejmoa1800474_subset_metadata.rds')
+ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+```
+
+* 950 random samples from DOI:10.1056/NEJMoa1800474 with:
+  * platform == Illumina HiSeq 2500
+  * median_depth >= 100
+  * fastp_pct_pass >= 95
+  * pct_mapped >= 95
+  * read lengths >= 290
+* Download FASTQ files with [nf-core/fetchngs](https://github.com/nf-core/fetchngs)
+
+```{r prepare_fetchngs, eval=FALSE}
+dir <- './02_data/fetchngs'
+if (!dir.exists(dir)) { dir.create(dir) }
+
+write_lines(samples_meta$sample_id, './02_data/fetchngs/ids.csv')
+```
+
+```{bash run_fetchngs, eval=FALSE}
+# requires nextflow
+cd 02_data/fetchngs
+nextflow run nf-core/fetchngs --input ids.csv --outdir output --download_method sratools -resume
+```
+
+```{r input_samples}
+input_fastq_dir <- './02_data/fetchngs/output/fastq/'
+
+samples_input <- 
+  samples_meta %>% 
+  inner_join(
+    tibble(
+      fastq = list.files(normalizePath(input_fastq_dir), pattern = '.fastq.gz', full.names = T)) %>% 
+      mutate(
+        sample_id = str_extract(basename(fastq), 'ERR[0-9]+'),
+        num = str_extract(basename(fastq), '[12](?=\\.fastq.gz)'),
+        .before = fastq) %>% 
+      pivot_wider(names_from = num, names_prefix = 'fastq', values_from = fastq),
+    by = join_by(sample_id)
+  )
+```
+
+* Down-sample all to 100X for consistency using "FastqMixer" workflow
+
+```{r prep_downsample, eval=FALSE}
+# downsample all files to 100X coverage for consistency
+if (!dir.exists('02_data/downsample')) {
+  dir.create('02_data/downsample')
+}
+# create manifest for downsampling
+samples_input %>% 
+  transmute(id = str_c(sample_id, '_100X'),
+            sample = sample_id,
+            frac = 100 / median_depth,
+            seed = 1,
+            fq1 = fastq1,
+            fq2 = fastq2) %>% 
+  write_tsv('02_data/downsample/manifest.tsv')
+```
+
+```{bash run_downsampling, eval=FALSE}
+cd "02_data/downsample"
+nextflow run ../../../TBtypeNF/workflows/benchmarking/FastqMixer/main.nf
+```
+* Run through all mixed infection tools with Nextflow benchmarking workflow
+
+```{r prep_100x_pred, eval=FALSE}
+# create directory to run through all tools in  TBtypeNF benchmark
+if (!dir.exists('02_data/100X_pred')) {
+  dir.create('02_data/100X_pred')
+}
+# copy nextflow config
+file.copy('benchmark_default.config', '02_data/100X_pred/nextflow.config')
+# copy ref
+file.copy(ref_fn, '02_data/100X_pred/')
+# create manifest
+read_tsv('02_data/downsample/output/output_manifest.tsv') %>% 
+  rename(sample = id) %>% 
+  mutate(sample = str_remove(sample, '_100X')) %>% 
+  write_tsv('02_data/100X_pred/manifest.tsv')
+```
+
+```{bash run_100x_pred, eval=FALSE}
+cd "02_data/100X_pred"
+nextflow run ../../../TBtypeNF/main.nf
+```
+
+```{r save_100x_pred, eval=FALSE}
+# save results as RDS
+read_tsv('02_data/100X_pred/output/combined_results.tsv') %>% 
+  saveRDS('02_data/100X_combined_results.rds')
+```
+
+```{r pred_100X}
+pred_100X <- 
+  read_rds('02_data/100X_combined_results.rds') %>% 
+  group_by(method, sample) %>% 
+  summarise(n_mix = n(), 
+            minor_prop = 1 - max(proportion, na.rm = T),
+            .groups = 'drop')
+
+pred_100X_smry <-
+  pred_100X %>% 
+  group_by(sample) %>% 
+  summarise(n_pred_mix = sum(n_mix > 1))
+```
+
+* Extract Sample BAF, compare with number of tools prediction mixture to find threshold for likely non-mixed samples
+
+
+```{r sample_BAF, eval=FALSE}
+library(SeqArray)
+
+gds <- seqOpen('02_data/100X_pred/output/gds/benchmark.concat.gds', allow.duplicate = T)
+af <- map(0:3, ~seqAlleleFreq(gds, ref.allele = .)) %>% do.call(cbind, .)
+# remove sites with no alt alleles
+include <- af[,1] < 1
+SeqArray::seqSetFilter(gds, variant.sel =include)
+# determine which alt allele is most common
+alt <- map_int(seq_len(nrow(af)), \(x) which.max(af[x,-1]))[include] + 1
+
+AD0 <- seqGetData(gds, 'annotation/format/AD')$data
+AD <- array(integer(), dim = c(nrow(AD0), ncol(AD0)/4, 4))
+for (i in seq(4)) {
+  AD[, , i] <- AD0[, i + 4L * (seq_len(ncol(AD0) / 4) - 1L)]
+}
+
+DP <-
+  map(seq_along(alt), \(i) {
+      AD[,i, 1] +  AD[,i, alt[i]]
+  }) %>%
+  do.call(cbind, .) %>%
+  set_rownames(seqGetData(gds, 'sample.id')) %>%
+  set_colnames(seqGetData(gds, 'variant.id'))
+
+med_dp_site <- apply(DP, 2, median)
+
+BAF <-
+  map(seq_along(alt), \(i) {
+     baf <- AD[,i, alt[i]] / DP[,i]
+     pmin(baf, 1-baf)
+  }) %>%
+  do.call(cbind, .) %>%
+  set_rownames(seqGetData(gds, 'sample.id')) %>%
+  set_colnames(seqGetData(gds, 'variant.id'))
+
+BAF <- BAF[, abs(scale(med_dp_site)) < 2]
+
+baf_smry <-
+  rowMeans(BAF, na.rm = T) %>%
+  tibble::enframe(name = 'sample',
+                  value = 'mean_baf')
+
+saveRDS(baf_smry, '02_data/baf_smry.rds')
+```
+
+* Set to Q3 (bottom 75%) of mean BAF for samples which no tool predicts as mixed
+
+```{r find_likely_non_mixed}
+# set threshold at quartile Q3 of BAF for samples not predicted as mixed by any method
+# consider all samples with mean BAF less than threshold as unmixed
+baf_smry <- readRDS('02_data/baf_smry.rds')
+
+baf_pred_smry <-
+  baf_smry %>% 
+  left_join(pred_100X_smry, by = 'sample') %>% 
+  mutate(n_pred_mix = as.factor(n_pred_mix))
+
+thresh_q3 <-
+  baf_pred_smry %>% 
+  filter(n_pred_mix == 0) %>% 
+  pull(mean_baf) %>% 
+  quantile(p = 0.75)
+
+nonmixed <-
+  baf_smry %>% 
+  filter(mean_baf < thresh_q3) %>% 
+  select(sample)
+
+baf_pred_smry %>% 
+  ggplot(aes(n_pred_mix, mean_baf)) +
+  geom_violin(scale = 'width') +
+  geom_boxplot(outlier.alpha = 0.2) +
+  geom_hline(yintercept = thresh_q3, col = 'red') +
+  scale_y_continuous(trans = 'log10') +
+  labs(y = 'mean BAF', x = 'Num. Tools Pred. Mix')
+
+```
+
+* Find pairwise sample combinations for generating simulated mixtures such that SNP distance >= 10
+
+```{r sample_combinations, eval=FALSE}
+gds <- SeqArray::seqOpen('02_data/100X_pred/output/gds/benchmark.concat.gds', allow.duplicate = T)
+SeqArray::seqSetFilter(gds, sample.id = nonmixed$sample)
+snp_dist <-  TBtypeR:::snp_distance(gds)
+
+snp_dist_mat <- as.matrix(snp_dist)
+
+# avoid sample combinations where snp_distance < 10
+sample_combs <-
+  as.matrix(snp_dist) %>%
+  as.data.frame() %>%
+  rownames_to_column('sample_1') %>%
+  pivot_longer(-sample_1, names_to = 'sample_2', values_to = 'dist') %>%
+  filter(dist >= 10) %>%
+  select(-dist)
+
+saveRDS(sample_combs, '02_data/sample_combs.rds')
+```
+
+* Generate Mixtures
+
+```{r generate_mixtures, eval=FALSE}
+depths <- c(20, 40, 60, 80, 100)
+props <- c(1,2.5,5,10,25,50)/100
+n_samples <- 50
+counts <- rep(0L, nrow(nonmixed)) %>% setNames(nonmixed$sample)
+weights <- rep(1L, nrow(nonmixed))
+sample_combs <- readRDS('02_data/sample_combs.rds')
+
+in_silico_dataset <-
+  expand_grid(depth = depths,
+              prop_2 = props) %>%
+  mutate(prop_1 = 1 - prop_2,
+         .before = 'prop_2') %>%
+  mutate(samples = map(row_number(), function(s) {
+    set.seed(s)
+
+    S1S2 <-
+      sample_n(nonmixed, n_samples, weight = weights) %>%
+      rename(sample_1 = sample) %>%
+      left_join(sample_combs, by = join_by(sample_1)) %>%
+      sample_n(n()) %>%
+      group_by(sample_1) %>%
+      slice(1) %>%
+      ungroup()
+    # balance chance of being sample_1
+    counts[S1S2$sample_1] <<- counts[S1S2$sample_1] + 1000
+    weights <<- abs(counts - max(counts)) + 1
+
+    # find sample_3 compatible with sample_1 and sample_2
+    S1S2S3 <-
+      inner_join(
+      sample_combs %>%
+        semi_join(S1S2, by = 'sample_1') %>%
+        rename(sample_3 = sample_2) %>%
+        inner_join(S1S2, by = 'sample_1'),
+      sample_combs %>%
+        rename(sample_2 = sample_1, sample_3 = sample_2) %>%
+        semi_join(S1S2, by = 'sample_2') %>%
+        inner_join(S1S2, by = 'sample_2', relationship = "many-to-many"),
+      by = join_by(sample_1, sample_2, sample_3)) %>%
+      sample_n(n()) %>%
+      group_by(sample_1) %>%
+      slice(1) %>%
+      ungroup() %>%
+      select(sample_1, sample_2, sample_3)
+
+
+
+  })) %>%
+  unnest(samples) %>%
+  mutate(id = row_number())  %>%
+  (function(x) bind_rows(
+    #SINGLE
+    mutate(x, id = str_c('SING', str_pad(id, 4, 'left', '0'))) %>%
+      select(-c(sample_2, sample_3, prop_2)) %>%
+      mutate(prop_1 = 1),
+    # PAIRS
+    mutate(x, id = str_c('PAIR', str_pad(id, 4, 'left', '0'))) %>%
+      select(-sample_3),
+    #TRIOS
+    mutate(x, id = str_c('TRIO', str_pad(id, 4, 'left', '0'))) %>%
+      filter(prop_2 ==  0.50) %>%
+      mutate(prop_2 = 1/3,
+             prop_3 = 1/6),
+
+  )) %>%
+  select(id, depth, prop_1, prop_2, prop_3, sample_1, sample_2, sample_3)
+
+sdist <- \(x, y) `if`(is.na(x) | is.na(y), NA_integer_, snp_dist_mat[x, y])
+
+in_silico_dataset <-
+  in_silico_dataset %>%
+  mutate(
+    dist_1_2 = map2_int(sample_1, sample_2, sdist),
+    dist_1_3 = map2_int(sample_1, sample_3, sdist),
+    dist_2_3 = map2_int(sample_2, sample_3, sdist)
+  ) %>%
+  mutate(across(c(prop_2, prop_3), \(x) replace_na(x, 0)))
+
+# saveRDS(in_silico_dataset, '02_data/in_silico_dataset.rds')
+```
+
+* Run mixture manifest through FastqMixer pipeline
+
+```{r prep_generate_mixtures, eval=FALSE}
+
+in_silico_dataset <- read_rds('02_data/in_silico_dataset.rds')
+
+if (!dir.exists('02_data/gen_mix')) {
+  dir.create('02_data/gen_mix')
+}
+# create manifest for mixing
+in_silico_dataset %>% 
+  pivot_longer(-c(id, depth),
+               names_to = c('.value', 'num'),
+               names_pattern = '(.+)_([123])') %>% 
+  filter(!is.na(sample)) %>% 
+  inner_join(
+    samples_input %>% 
+      select(sample=sample_id, median_depth, fastq1, fastq2),
+    by = join_by(sample)
+  ) %>% 
+  mutate(frac = prop * depth / median_depth,
+         seed = 1) %>% 
+  rename(fq1 = fastq1, fq2 = fastq2) %>% 
+  select(id, sample, frac, seed, fq1, fq2)%>% 
+  write_tsv('02_data/gen_mix/manifest.tsv')
+```
+
+```{bash run_generate_mixtures, eval=FALSE}
+cd "02_data/gen_mix"
+nextflow run ../../../TBtypeNF/workflows/benchmarking/FastqMixer/main.nf
+```

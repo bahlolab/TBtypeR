@@ -1,0 +1,97 @@
+---
+title: "Fig 2"
+output: 'github_document'
+---
+
+
+```{r setup}
+library(tidyverse)
+
+s41598_panel_A_dat <- readRDS('06_data/s41598_panel_A_dat.rds')
+s41598_panel_B_dat <- readRDS('06_data/s41598_panel_B_dat.rds')
+```
+
+
+```{r fig_s2_panel_a}
+
+tool_med <- s1_panel_A_dat %>% group_by(Tool) %>% summarise(MSF = median(MSF))
+
+fig_S2_panel_A <-
+  s41598_panel_A_dat %>% 
+  select(Sample=sample, Tool, MSF) %>% 
+  ggplot(aes(MSF, fill = Tool)) +
+  geom_histogram(binwidth = 1) +
+  geom_vline(
+    aes(xintercept = MSF),
+    data = tool_med,
+    lty = 2
+  ) +
+  xlim(0, 50)  +
+  labs(y = 'Count', x = 'MSF (%)')
+
+# saveRDS(fig_S2_panel_A$data, '09_data/fig_2A_data.rds')
+fig_S2_panel_A
+```
+
+
+```{r}
+
+s41598_panel_B_dat_smry <-
+  s41598_panel_B_dat %>% 
+  group_by(sample, state, exp_baf) %>% 
+  summarise(
+    baf = median(baf),
+    .groups = 'drop'
+  )
+
+fig_S2_panel_B <-
+  s41598_panel_B_dat %>% 
+  ggplot(aes(state, baf)) +
+  geom_jitter(
+    height = 0, 
+    size = 0.15, 
+    col = 'orchid'
+  ) +
+  geom_hline(
+    data = s41598_panel_B_dat_smry,
+    aes(yintercept = exp_baf),
+    col = 'black',
+    alpha = 0.5
+  ) +
+  geom_point(
+    data= s41598_panel_B_dat_smry,
+    col = 'black',
+    shape = 3,
+    size = 1.5,
+    stroke = 1,
+    alpha = 0.75
+  ) +
+  scale_y_continuous(
+    trans = scales::asn_trans(),
+    limits = c(0,1),
+    breaks = c(seq(0.1, 0.9, by = 0.2))
+  ) +
+  facet_wrap(~sample, nrow = 2) +
+  labs(y = 'BAF', x = 'Genotype')
+
+# saveRDS(fig_S2_panel_B$data, '09_data/fig_2B_data.rds')
+# fig_S2_panel_B
+```
+
+
+```{r fig.height=5.5, fig.width=8}
+nomar <- theme(
+  plot.margin = margin(t=0,b=0,r=3,l=0),
+  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
+)
+
+cowplot::plot_grid(
+  fig_S2_panel_A + ggtitle('A.') + nomar,
+  fig_S2_panel_B + ggtitle('B.') + nomar,
+  ncol = 1,
+  rel_heights = c(5,10),
+  align = 'v',
+  axis = 'l'
+)
+```
+

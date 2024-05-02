@@ -1,0 +1,382 @@
+---
+title: "In silico mixture benchmarks"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE}
+library(tidyverse)
+source('functions.R')
+ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+in_silico_dataset <-  readRDS('02_data/in_silico_dataset.rds') 
+```
+
+* Run benchmarks
+
+```{r prep_benchmark, eval=FALSE}
+if (!dir.exists('03_data/benchmark')) {
+  dir.create('03_data/benchmark')
+}
+# copy nextflow config
+file.copy('benchmark_default.config', '03_data/benchmark/nextflow.config')
+# copy ref
+file.copy(ref_fn, '03_data/benchmark/')
+# create manifest
+read_tsv('02_data/gen_mix/output/output_manifest.tsv') %>% 
+  rename(sample = id) %>% 
+  arrange_all() %>% 
+  write_tsv('03_data/benchmark/manifest.tsv')
+```
+
+```{bash run_benchmark, eval=FALSE}
+cd "03_data/benchmark"
+nextflow run ../../../TBtypeNF/main.nf
+```
+
+```{r prep_benchmark_var, eval=FALSE}
+# copy nextflow config
+file.copy('benchmark_variation.config', '03_data/benchmark/nextflow.config', overwrite = T)
+```
+
+```{bash run_benchmark_var, eval=FALSE}
+cd "03_data/benchmark"
+nextflow run ../../../TBtypeNF/main.nf
+```
+
+* Save results
+
+```{r save_results, eval=FALSE}
+bench_res_raw <- 
+  bind_rows(
+    read_tsv('03_data/benchmark/output/combined_results.tsv'),
+    read_tsv('03_data/benchmark/output-var/combined_results.tsv') %>% 
+      mutate(method = if_else(
+        method == 'FastTBtypeR',
+        method,
+        str_c(method, ' (+TBT)')))
+  ) %>% 
+  mutate(
+    method = str_replace(method, 'fastlin', 'Fastlin'),
+    method = str_replace(method, 'quanttb', 'QuantTB'),
+  )
+
+missing <-
+  bench_res_raw %>% 
+  select(method, sample) %>% 
+  distinct() %>% 
+  mutate(present = TRUE) %>% 
+  group_by(method) %>% 
+  complete(sample = in_silico_dataset$id) %>% 
+  ungroup() %>% 
+  mutate(present = replace_na(present, FALSE)) %>% 
+  filter(!present)
+
+assertthat::assert_that(nrow(missing) == 0)
+
+saveRDS(bench_res_raw, '03_data/bench_res_raw.rds')
+```
+
+* Summarise results
+
+```{r summarise}
+bench_res_raw <- read_rds('03_data/bench_res_raw.rds')
+
+bench_res_smry <-
+  bench_res_raw %>% 
+  group_by(method, sample) %>% 
+  summarise(
+    mix_n = n(),
+    is_mixed = mix_n > 1,
+    minor_prop = 1 - suppressWarnings(max(proportion, na.rm = T)),
+    minor_prop = `if`(is.finite(minor_prop), minor_prop, 0),
+    .groups = 'drop'
+  )
+
+get_prop <- \(x, i) {
+  x <- na.omit(x)
+  if (length(x) < i) { return(0) }
+  sort(x, T)[i]
+}
+
+bench_res_smry_trio <-
+  bench_res_raw %>% 
+  group_by(method, sample) %>% 
+  summarise(
+    mix_n = min(n(), 3L),
+    prop_1 = get_prop(proportion, 1),
+    prop_2 = get_prop(proportion, 2),
+    prop_3 = get_prop(proportion, 3),
+    .groups = 'drop'
+  ) 
+```
+
+* Evaluate performance on "in silico duos"
+
+```{r comparison}
+bimix_tbl <-
+  in_silico_dataset %>% 
+  filter(is.na(sample_3)) %>% 
+  select(id, depth, minor_prop = prop_2, distance = dist_1_2) %>% 
+  mutate(idn = str_extract(id, '\\d+')) %>% 
+  (function(x) 
+    x %>% 
+     filter(str_starts(id, 'PAIR')) %>% 
+     mutate(mpg = minor_prop) %>% 
+     (function(y) 
+       y %>% 
+        bind_rows(
+          x %>% 
+            filter(str_starts(id, 'SING')) %>% 
+            select(-distance) %>% 
+            left_join(select(y, idn, mpg, distance),
+                      by = "idn")
+        )
+     )
+  ) %>% 
+  select(-idn) %>% 
+  mutate(is_mixed = minor_prop > 0) %>% 
+  inner_join(
+    bench_res_smry %>% rename(id = sample),
+    by = 'id',
+    suffix = c('', '_pred')
+  ) %>% 
+  mutate(minor_percent = 100 * minor_prop,
+         minor_percent_pred = 100 * minor_prop_pred)
+
+saveRDS(bimix_tbl, '03_data/bimix_tbl.rds')
+
+```
+
+
+```{r bimix_orverall}
+# summarise over all data points
+is_duo_bench_metrics <-
+  bimix_tbl %>%
+  group_by(method) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 100*MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  arrange(desc(nMCC)) %>% 
+  mutate(method = as_factor(method))
+
+saveRDS(is_duo_bench_metrics, '03_data/is_duo_bench_metrics.rds')
+
+is_duo_bench_metrics %>% 
+  mutate(`1-MAE` = (100-MAE)/100) %>% 
+  select(-accuracy, -MAE) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, `1-MAE`),
+               names_to = 'measure') %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC', 'f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
+  group_by(measure) %>% 
+  mutate(rank = rank(desc(value), ties.method = 'min')) %>% 
+  ungroup() %>% 
+  mutate(rank = ordered(rank)) %>% 
+  ggplot(aes(method, value, fill=rank)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_viridis_d(direction = -1, begin = 0.10, end = 0.90) +
+  theme(axis.title = element_blank()) +
+  facet_wrap(~measure, nrow = 2)  +
+  theme(legend.position = 'bottom') +
+  labs(title = 'in silico duos overall performance')
+```
+
+```{r scatterboxplots}
+breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
+
+bimix_tbl %>% 
+  filter(is_mixed) %>% 
+  left_join(is_duo_bench_metrics %>% 
+              transmute(method = method,
+                        label = str_c(method,
+                                      '\nMAE=', format(round(MAE, 2)),
+                                      '\nrecall=', format(round(recall, 2)))),
+            by = 'method') %>% 
+  filter(!is.na(minor_percent_pred))  %>% 
+  ggplot(aes(minor_percent, minor_percent_pred, group = minor_percent)) +
+  geom_abline(col = 'red') +
+  geom_boxplot(fill = NA, outlier.alpha = 0.5) +
+  scale_x_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
+  scale_y_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
+  theme(
+    # axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
+  coord_fixed() +
+  facet_wrap(~label, nrow = 2) +
+  ggtitle('Accuracy of minor strain percentages for in silico duos')
+
+```
+
+```{r by_depth}
+is_duo_by_depth <-
+  bimix_tbl %>% 
+  group_by(method, depth) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 100*MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
+               names_to = 'measure')
+
+saveRDS(is_duo_by_depth, '03_data/is_duo_by_depth.rds')
+
+is_duo_by_depth %>% 
+  mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
+         measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+  ggplot(aes(depth, value, colour = method)) +
+  # ggplot(aes(depth, value, colour = method, lty = method)) +
+  geom_line() +
+  geom_point(aes(shape=method)) +
+  theme(legend.position = 'bottom') +
+  facet_wrap(~measure,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  scale_shape_discrete() +
+  # scale_shape_manual(values = c(8:9, 15:18)) +
+  ylab('value') +
+  ggtitle('In silico duo performance by depth')
+
+```
+
+
+```{r by_mp}
+is_duo_by_mp <-
+  bimix_tbl %>% 
+  mutate(minor_percent = mpg * 100) %>% 
+  group_by(method, minor_percent) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 100*MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
+               names_to = 'measure')
+
+saveRDS(is_duo_by_mp, '03_data/is_duo_by_mp.rds')
+
+is_duo_by_mp %>% 
+  mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
+         measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy')))  %>% 
+  ggplot(aes(minor_percent, value, colour = method, shape=method)) +
+  geom_line() + 
+  geom_point(aes(shape = method)) +
+  theme(legend.position = 'bottom') +
+  facet_wrap(~measure,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  # scale_shape_manual(values = c(8:9, 15:18)) +
+  scale_x_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
+  ylab('value') +
+  xlab('MSF') +
+  ggtitle('In silico duo performance by MSF')
+
+```
+
+```{r by_dist}
+
+is_duo_by_dist <-
+  bimix_tbl %>% 
+  mutate(dist_bin = cume_dist(distance) %/% (1/5) + 1) %>% 
+  group_by(method, dist_bin) %>%
+  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 100*MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
+               names_to = 'measure') %>% 
+  mutate(measure = if_else(measure == 'MAE', 'MAE', measure))
+  
+
+saveRDS(is_duo_by_dist, '03_data/is_duo_by_dist.rds')
+
+is_duo_by_dist %>% 
+  mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
+         measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(
+    measure, 
+    c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+  ggplot(aes(dist_bin, value, colour = method, shape=method)) +
+  geom_line() +
+  geom_point(aes(shape = method)) +
+  theme(legend.position = 'bottom') +
+  facet_wrap(~measure,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  # scale_shape_manual(values = c(8:9, 15:18)) +
+  ylab('value') +
+  xlab('SNP distance Bin') +
+  ggtitle('In silico duo performance by SNP distance')
+```
+
+* Evaluate "Trios" performance
+
+```{r trios_1}
+
+trimix_tbl <-
+  in_silico_dataset %>% 
+  mutate(idn = str_extract(id, '\\d+')) %>% 
+  (function(x) {
+    ids <- filter(x, str_starts(id, 'TRIO')) %>% pull(idn)
+    filter(x, idn %in% ids)
+  }) %>% 
+  mutate(mix_n = if_else(prop_2 == 0, 1L, if_else(prop_3 == 0, 2L, 3L))) %>% 
+  group_by(idn) %>% 
+  mutate(across(starts_with(c('dist_', 'sample_')), \(x) first(na.omit(x)))) %>% 
+  ungroup() %>% 
+  inner_join(
+    bench_res_smry_trio %>% rename(id = sample),
+    by = 'id',
+    suffix = c('', '_pred')
+  ) %>% 
+  mutate(across(starts_with('mix_n'), \(x) ordered(x)))
+
+
+is_trio_bench_metrics <-
+  trimix_tbl %>%
+  filter(mix_n != 2) %>% 
+  group_by(method) %>%
+  summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
+            MAE = 100* MAE(c(prop_2, prop_3), c(prop_2_pred, prop_3_pred)),
+            .groups = 'drop')  %>%
+  unnest(measures)
+
+saveRDS(is_trio_bench_metrics, '03_data/is_trio_bench_metrics.rds')
+
+is_trio_bench_metrics_123 <-
+  trimix_tbl %>%
+  group_by(method) %>%
+  summarise(measures = binary_measures(mix_n == 3, mix_n_pred == 3),
+            MAE = 100*MAE(c(prop_2, prop_3), c(prop_2_pred, prop_3_pred)),
+            .groups = 'drop')  %>%
+  unnest(measures)
+
+```
+
+```{r trios_2}
+
+is_trio_accuracy <- 
+  trimix_tbl %>% 
+  left_join(
+    is_trio_bench_metrics_123 %>% 
+      select(method, accuracy) 
+  ) %>%
+  select(id, method, accuracy, mix_n, mix_n_pred) 
+
+saveRDS(is_trio_accuracy, '03_data/is_trio_accuracy.rds')
+
+is_trio_accuracy %>% 
+  mutate(label = str_c(method, '\naccuracy=', format(round(accuracy, 2)))) %>% 
+  arrange(desc(accuracy)) %>% 
+  mutate(label = as_factor(label)) %>% 
+  ggplot(aes(mix_n, fill = mix_n_pred)) +
+  geom_bar() +
+  facet_wrap(~label) +
+  coord_flip() +
+  ggtitle('Accuracy when identifying mixtures of 1-3 strains')
+
+```
+
