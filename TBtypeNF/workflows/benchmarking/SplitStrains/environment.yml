@@ -1,0 +1,15 @@
+name: base
+channels:
+    - conda-forge
+    - bioconda
+dependencies:
+    - python=3.6.9
+    - matplotlib
+    - mixem=0.1.4
+    - numpy=1.15.4
+    - numpydoc=0.8.0
+    - pysam=0.15.0
+    - scipy=1.1.0
+    - seaborn=0.9.0
+    - scikit-learn
+    - samtools

@@ -1,0 +1,6 @@
+name: base
+channels:
+    - conda-forge
+    - bioconda
+dependencies:
+    - fastlin=0.2.3-0

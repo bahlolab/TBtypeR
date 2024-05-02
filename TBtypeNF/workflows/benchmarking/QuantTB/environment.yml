@@ -1,0 +1,8 @@
+name: base
+channels:
+    - conda-forge
+    - bioconda
+    - jemunro
+dependencies:
+    - quanttb=1.01
+    - mummer

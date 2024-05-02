@@ -1,0 +1,11 @@
+sample	group	tissue	fastq1	fastq2	reference
+SRR13312530	G033	healthy	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/030/SRR13312530/SRR13312530_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/030/SRR13312530/SRR13312530_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR13312531	G033	external wall	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/031/SRR13312531/SRR13312531_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/031/SRR13312531/SRR13312531_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR13312532	G033	inner wall	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/032/SRR13312532/SRR13312532_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/032/SRR13312532/SRR13312532_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR13312533	G033	nodulus	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/033/SRR13312533/SRR13312533_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR133/033/SRR13312533/SRR13312533_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR7516345	G033	caseum	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR751/005/SRR7516345/SRR7516345_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR751/005/SRR7516345/SRR7516345_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR5153601	G039	caseum	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/001/SRR5153601/SRR5153601_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/001/SRR5153601/SRR5153601_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR5153611	G039	nodulus	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/001/SRR5153611/SRR5153611_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/001/SRR5153611/SRR5153611_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR5153614	G039	inner wall	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/004/SRR5153614/SRR5153614_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/004/SRR5153614/SRR5153614_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR5153619	G039	external wall	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/009/SRR5153619/SRR5153619_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/009/SRR5153619/SRR5153619_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
+SRR5153621	G039	healthy	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/001/SRR5153621/SRR5153621_1.fastq.gz	http://ftp.sra.ebi.ac.uk/vol1/fastq/SRR515/001/SRR5153621/SRR5153621_2.fastq.gz	doi.org/10.1038/s41467-021-22705-z
