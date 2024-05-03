@@ -1,0 +1,59 @@
+---
+title: "TBtypeR"
+output: 'github_document'
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, results = "hold", message = FALSE, warning = FALSE)
+```
+
+`TBtypeR` is an R package that performs accurate and sensitive
+quantification of mixtures of *M. tuberculosis* (MTB) strains from whole
+genome sequencing (WGS) data. `TBtypeR` excels as detecting low-frequency mixed infections that other tools struggle to detect, maintaining a sensitivity of 85% down to minor strain frequencies of 2.5%. 
+
+## Running TBtypeNF
+`TBtypeNF` is an end-to-end [Nextflow](https://www.nextflow.io/index.html) pipeline for `TBtypeR` that takes FASTQ  files as input and performs FASTQ preprocessing with [fastp](https://github.com/OpenGene/fastp), read alignment with [BWA-MEM](https://github.com/lh3/bwa), variant calling with [BCFtools](https://samtools.github.io/bcftools/bcftools.html), and quality control (QC) report generation using [SAMtools](https://www.htslib.org/), [mosdepth](https://github.com/brentp/mosdepth). The output is an HTML report with detected MTBC strains and mixtures frequencies.
+
+`TBtypeNF` requires a sample manifest to run, minimally a TSV file with column names "sample", "fastq1" and "fastq2" - see [example manifest](TBtypeNF/resources/lung_example_manifest.tsv).
+
+### Requirements  
+* Nextflow (≥ 22.03.0)
+* Singularity (Apptainer) or Docker
+
+### Usage  
+```{bash, eval=FALSE}
+# download example manifest
+wget https://raw.githubusercontent.com/bahlolab/TBtypeR/main/TBtypeNF/resources/lung_example_manifest.tsv -O my_manifest.tsv
+# run the nextflow pipeline
+nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --manifest my_manifest.tsv
+```
+
+## Using TBtypeR
+The recommended way to use `TBtypeR` is through the `TBtypeNF` pipeline. However, additional parameters and customisation is available by using the R package directly. `TBtypeR` can be installed with `devtools` as follows:
+```{r, eval=FALSE}
+devtools::install_github("bahlolab/TBtypeR")
+```
+
+Example usage of `TBtypeR` as follows:
+```{r detect_mixtures}
+library(SeqArray)
+library(tidyverse)
+library(TBtypeR)
+
+# replace with path to your VCF file
+vcf_filename <- system.file('vcf/example.vcf.gz', package = 'TBtypeR')
+
+tbtype_result <- 
+  tbtype(vcf = vcf_filename) %>% 
+  filter_tbtype(max_phylotypes = 3) %>%
+  unnest_mixtures()
+
+tbtype_result %>% 
+  knitr::kable()
+```
+```{r visualise_result}
+tbtype_result %>% 
+  ggplot(aes(x = sample_id, y = mix_prop, fill = mix_phylotype)) +
+  geom_col() +
+  coord_flip()
+```
+
