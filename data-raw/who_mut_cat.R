@@ -131,7 +131,7 @@ who_mut_cat_2021 <-
 
 usethis::use_data(who_mut_cat_2021, overwrite = TRUE, internal = FALSE)
 
-res_dir <- normalizePath(file.path(wd, '..', 'TBtypeNF', 'resources'))
+res_dir <- normalizePath(file.path(wd, '..', '..', 'TBtypeNF', 'resources'))
 
 write_tsv(who_mut_cat_2021, file.path(res_dir, 'who_mut_cat_2021.tsv.bz2'))
 

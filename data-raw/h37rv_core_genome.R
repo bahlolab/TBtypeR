@@ -36,11 +36,11 @@ h37rv_core_genome <-
   (function(x) x[x$locus_tag %in% core_genes & x$type == 'CDS'] ) %>%
   (function(x) GenomicRanges::GRanges(GenomicRanges::seqnames(x), x@ranges))
 
-usethis::use_data(h37rv_core_genome, overwrite = TRUE, internal = FALSE)
+# usethis::use_data(h37rv_core_genome, overwrite = TRUE, internal = FALSE)
 
 # create bed file for TBtypeNF
-res_dir <- normalizePath(file.path(wd, '..', 'TBtypeNF', 'resources'))
-bed_fn <- file.path(res_dir, 'h37rv_core_genome.bed.bz2')
-rtracklayer::export.bed(core_reg, bed_fn )
+res_dir <- normalizePath(file.path(wd, '..', '..', 'TBtypeNF', 'resources'))
+bed_fn <- file.path(res_dir, 'h37rv_core_genome.bed.gz')
+rtracklayer::export.bed(h37rv_core_genome, bed_fn )
 read_tsv(bed_fn, col_names = F) %>% select(1:3) %>% write_tsv(bed_fn, col_names = F)
 
