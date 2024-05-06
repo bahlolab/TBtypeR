@@ -164,7 +164,7 @@ is_gds <- function(x) {
 }
 
 is_open_gds <- function(x) {
-  is_gds(x) && !identical(gds$ptr, new("externalptr"))
+  is_gds(x) && !identical(x$ptr, new("externalptr"))
 }
 
 #' @export
@@ -281,4 +281,25 @@ snp_distance <- function(gds,
 
   pdist(GT, threads = threads)
 
+}
+
+#' @importFrom SeqArray seqOpen seqVCF2GDS
+#' @importFrom assertthat assert_that
+#' @importFrom rlang is_scalar_character
+#' @importFrom stringr str_replace
+vcf_to_gds <- function(vcf_fn) {
+
+  assert_that(is_scalar_character(vcf_fn),
+              file.exists(vcf_fn))
+
+  gds_fn <- file.path(tempdir(), str_c(basename(vcf_fn), '.gds'))
+  if (! file.exists(gds_fn)) {
+    message("create GDS file: ", gds_fn)
+    seqVCF2GDS(vcf.fn = vcf_fn,
+               out.fn = gds_fn,
+               storage.option = 'ZIP_RA',
+               ignore.chr.prefix = '',
+               verbose = FALSE)
+  }
+  seqOpen(gds_fn, allow.duplicate = TRUE)
 }

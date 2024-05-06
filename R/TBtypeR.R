@@ -4,7 +4,8 @@
 #' @importFrom magrittr set_colnames set_rownames
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
-tbtype <- function(gds,
+tbtype <- function(gds = NULL,
+                   vcf = NULL,
                    allele_counts = NULL,
                    panel = TBtypeR::tbt_panel,
                    max_phylotypes = 5L,
@@ -35,7 +36,7 @@ tbtype <- function(gds,
 
   # check args
   assert_that(
-    is_gds(gds) || !is.null(allele_counts),
+    is_gds(gds) || !is.null(allele_counts) || is_scalar_character(vcf),
     is_scalar_integerish(max_phylotypes) && max_phylotypes > 0,
     is_scalar_integerish(min_median_depth) && min_median_depth > 0,
     is_scalar_double(min_depth_fold) && min_depth_fold >= 1,
@@ -48,6 +49,10 @@ tbtype <- function(gds,
     is.null(error_rate) || is_scalar_double(error_rate)
   )
   set.seed(seed)
+
+  if (is_scalar_character(vcf)) {
+    gds <- vcf_to_gds(vcf)
+  }
 
   phylo <- panel_to_phylo(panel)
   geno <- panel_to_geno(panel)
