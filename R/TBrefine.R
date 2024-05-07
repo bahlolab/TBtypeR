@@ -194,7 +194,10 @@ tbrefine <- function(
             as_tibble(x) %>%
               mutate(
                 phylotype =
-                  label_phylo(x, root_label = '') %>%
+                  label_phylo(
+                    x,
+                    root_label = if_else(treeio::rootnode(phylo) %in% node_vars$node, '1', '')
+                  ) %>%
                   as_tibble() %>%
                   pull(label) %>%
                   str_remove('^\\.'),
@@ -202,7 +205,10 @@ tbrefine <- function(
               select(label, phylotype, parent_phylotype)
           }) %>%
           mutate(across(ends_with('phylotype'), ~ str_c(root_phylotype, '[', ., ']'))) %>%
-          mutate(parent_phylotype = str_remove(parent_phylotype, '\\[\\]'))
+          mutate(parent_phylotype = str_remove(parent_phylotype, '\\[\\]'),
+                 parent_phylotype = if_else(phylotype == parent_phylotype,
+                                            str_remove(parent_phylotype, '\\[1\\]'),
+                                            parent_phylotype))
 
         inner_join(
           node_labels,

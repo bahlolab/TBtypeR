@@ -72,6 +72,10 @@ panel_to_phylo <- function(panel) {
     select(from = parent_phylotype, to = phylotype) %>%
     distinct()
 
+  # check acyclic
+  gr <- igraph::graph_from_edgelist(as.matrix(edges), directed = T)
+  assertthat::assert_that(igraph::is.dag(gr))
+
   root <- setdiff(edges$from, edges$to)
   tips <- setdiff(edges$to, edges$from)
   nodes <- c(root, setdiff(c(edges$from, edges$to), c(root, tips)))
