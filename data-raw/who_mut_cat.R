@@ -136,8 +136,4 @@ res_dir <- normalizePath(file.path(wd, '..', '..', 'TBtypeNF', 'resources'))
 write_tsv(who_mut_cat_2021, file.path(res_dir, 'who_mut_cat_2021.tsv.bz2'))
 
 # cleanup
-file.remove(who_mut_cat_fn)
-file.remove(list.files(
-  wd,
-  pattern = basename(str_remove(ref_fn, '\\.gz$')),
-  full.names = TRUE))
+unlink(wd, recursive = T)

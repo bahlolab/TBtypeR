@@ -44,3 +44,4 @@ bed_fn <- file.path(res_dir, 'h37rv_core_genome.bed.gz')
 rtracklayer::export.bed(h37rv_core_genome, bed_fn )
 read_tsv(bed_fn, col_names = F) %>% select(1:3) %>% write_tsv(bed_fn, col_names = F)
 
+unlink(wd, recursive = T)

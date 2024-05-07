@@ -235,3 +235,5 @@ usethis::use_data(tbt_panel, overwrite = TRUE, internal = FALSE)
 res_dir <- normalizePath(file.path(wd, '..', '..', 'TBtypeNF', 'resources'))
 
 write_tsv(tbt_panel, file.path(res_dir, 'tbt_panel.tsv.bz2'))
+
+unlink(wd, recursive = T)
