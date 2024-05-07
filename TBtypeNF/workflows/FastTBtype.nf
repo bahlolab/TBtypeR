@@ -38,7 +38,7 @@ workflow FastTBtypeNF {
 
     FASTLIN(bc_ch, fq_ch)
 
-    results = TBTYPER(panel_ch, params.args_json, FASTLIN.out) \
+    results = TBTYPER(panel_ch, params.args_json ?: false, FASTLIN.out) \
         | map { it[1] } \
         | collectFile(
             name: 'FastTBtypeR.results.csv',
