@@ -185,8 +185,7 @@ phylo_geno_dist <- function(phylo, geno, min_dist = 1L, as_phylo = FALSE) {
 #' @importFrom purrr map
 label_phylo <- function(phylo,
                         node_labels = integer(0L),
-                        sep = "|",
-                        anc_sep = "-A",
+                        sep = ".",
                         root_label = "root") {
   assert_that(
     is_phylo(phylo),
@@ -207,36 +206,15 @@ label_phylo <- function(phylo,
       label_new = names(node_labels)[match(node, node_labels)],
       children = map(node, function(nd) treeio::child(phylo, nd)),
       depth = n_ancestor(phylo, node),
-      nchild = lengths(children),
-      is_anc = (nchild == 1) & (!node %in% node_labels)
+      nchild = lengths(children)
     )
 
-  anc <-
-    filter(in_tree, is_anc) %>%
-    mutate(child = unlist(children)) %>%
-    {
-      `if`(
-        nrow(.) > 0,
-        with(., {
-          level <- rep(1L, length(node))
-          descendent <- child
-          for (dp in unique(sort(setdiff(depth, max(depth)), T))) {
-            ii <- which(depth == dp) %>% purrr::keep(~ child[.] %in% node)
-            level[ii] <- level[match(child[ii], node)] + 1L
-            descendent[ii] <- descendent[match(child[ii], node)]
-          }
-          tibble(label_old = label, level = level, descendent = descendent)
-        }),
-        tibble(label_old = character(), level = integer(), descendent = integer())
-      )
-    }
-
   new_labs <-
-    condense_phylo(phylo, filter(in_tree, is_anc) %>% pull(node)) %>%
+    phylo %>%
     {
       mutate(as_tibble(.),
-        depth = n_ancestor(., node),
-        children = map(node, function(nd) Children(., nd))
+             depth = n_ancestor(., node),
+             children = map(node, function(nd) Children(., nd))
       )
     } %>%
     left_join(select(in_tree, label, label_new, nchild), "label") %>%
@@ -255,19 +233,10 @@ label_phylo <- function(phylo,
   in_tree %>%
     select(parent, node, branch.length, label_old = label) %>%
     left_join(new_labs, "label_old") %>%
-    (function(df) {
-      select(df, label_desc = label_new, descendent = node) %>%
-        right_join(anc, "descendent") %>%
-        mutate(label_anc = str_c(label_desc, anc_sep, level)) %>%
-        select(label_old, label_anc) %>%
-        {
-          left_join(df, ., "label_old")
-        }
-    }) %>%
-    mutate(label_new = if_else(is.na(label_new), label_anc, label_new)) %>%
     select(parent, node, branch.length, label = label_new) %>%
     df2phylo()
 }
+
 
 get_tips_by_nodelab <- function(phylo, node_lab) {
   as_tibble(phylo) %>%
