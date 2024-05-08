@@ -17,6 +17,7 @@ Options:
   --sample-id=<s>        Sample Identifier [default: sample].
   --threads=<i>          Number of parallel threads to uses [default: 8].
   --max-mix=<i>          Maximum number of mixture components [default: 2].
+  --min-mix-prop=<d>     Minimum mixture proportion detectable [default: 0.005]
   --args-json=<a>        Additional arguments in json format for TBtypeR::tbtype
 " -> doc
 
@@ -29,6 +30,7 @@ stopifnot(
 
 threads <- max(as.integer(opts$threads), 1)
 max_mix <- as.integer(opts$max_mix)
+min_mix_prop <- as.numeric(opts$min_mix_prop)
 
 options(future.globals.maxSize = Inf)
 plan(multicore, workers = threads)
@@ -40,14 +42,23 @@ allele_counts <- TBtypeR:::fastlin_allele_counts(
   sample_id = opts$sample_id
 )
 
-args <- list(gds = NULL, allele_counts = allele_counts, panel = panel)
+args <- list(
+  allele_counts = allele_counts,
+  panel = panel,
+  max_phylotypes = max_mix,
+  min_mix_prop = min_mix_prop
+)
+
 if (!is.null(opts$args_json)) {
   args <- c(args, jsonlite::fromJSON(opts$args_json))
 }
 
 tbt_res <-
   do.call(TBtypeR::tbtype, args) %>%
-  TBtypeR::filter_tbtype(max_phylotypes = max_mix) %>%
+  TBtypeR::filter_tbtype(
+    max_phylotypes = max_mix,
+    min_mix_prop = min_mix_prop
+  ) %>%
   TBtypeR::unnest_mixtures()
 
 saveRDS(tbt_res, str_c(opts$sample_id, ".tbt_res.rds"))

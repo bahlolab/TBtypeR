@@ -1,3 +1,6 @@
+# TODO:
+  # Canned visualisations?
+  # set spike_in_p to min_mix_prop (intuitive)
 
 #' @export
 #' @importFrom rlang is_integer is_scalar_integerish is_bool is_scalar_character
@@ -9,14 +12,13 @@ tbtype <- function(gds = NULL,
                    allele_counts = NULL,
                    panel = TBtypeR::tbt_panel,
                    max_phylotypes = 5L,
-                   min_mix_prop = 0.001,
+                   min_mix_prop = 0.005,
                    min_median_depth = 10L,
                    min_depth_fold = 5,
                    max_depth = 200L,
                    max_depth_fold = 2,
                    max_p_val_perm = 0.01,
                    max_p_val_wsrst = 0.01,
-                   spike_in_p = 0.01,
                    reoptimise = TRUE,
                    min_sites = 1000L,
                    n_perm = 1000L,
@@ -29,10 +31,6 @@ tbtype <- function(gds = NULL,
                    error_rate = 0.005,
                    verbose = FALSE,
                    seed = 1L) {
-
-  # TODO: allow VCF input as well as gds input?
-  # TODO: Cache Allele counts?
-  # TODO: Canned visualisations?
 
   # check args
   assert_that(
@@ -107,7 +105,6 @@ tbtype <- function(gds = NULL,
           max_depth_fold = max_depth_fold,
           max_p_val_perm = max_p_val_perm,
           max_p_val_wsrst = max_p_val_wsrst,
-          spike_in_p = spike_in_p,
           reoptimise = reoptimise,
           min_sites = min_sites,
           n_perm = n_perm,
@@ -154,7 +151,6 @@ tbtype_sample <- function(phylo,
                           max_depth_fold,
                           max_p_val_perm,
                           max_p_val_wsrst,
-                          spike_in_p,
                           reoptimise,
                           min_sites,
                           n_perm,
@@ -275,7 +271,7 @@ tbtype_sample <- function(phylo,
         phy_gts_last = mix_gts_last,
         phy_gts_search = phy_gts[, -nodes_exclude, drop = FALSE],
         mix_prop_last = mix_prop_last,
-        mix_prop_search = spike_in_p,
+        mix_prop_search = min_mix_prop,
         error_rate = optim_error$error_rate,
         n_perm = n_perm,
         max_p_val_perm = max_p_val_perm,
@@ -303,7 +299,7 @@ tbtype_sample <- function(phylo,
     optim <- optimise_mix_and_error_rate(
       data = data,
       mix_gts = mix_gts,
-      fit = c_spike_in(mix_prop_last, spike_in_p),
+      fit = c_spike_in(mix_prop_last, min_mix_prop),
     )
 
     model_curr <- optim$model_curr

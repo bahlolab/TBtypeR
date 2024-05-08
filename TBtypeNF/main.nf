@@ -7,10 +7,11 @@ import static Helpers.path
 params.manifest        = null
 params.id              = 'TBtypeNF-run'
 params.ref_fasta       = 'https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/195/955/GCA_000195955.2_ASM19595v2/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
-params.calling_regions = "$projectDir/resources/h37rv_core_genome.bed.gz" // Optional. Set to null for whole genome.
+params.calling_regions = "$projectDir/resources/h37rv_core_genome.bed.gz" // Optional. Set NULL to skip SNP calling outside of panel/barcode
 params.panel           = "$projectDir/resources/tbt_panel.tsv.bz2" // Optional. Set to null for whole genome.
 params.min_af          = 0.001
 params.max_mix         = 3
+params.min_mix_prop    = 0.005
 params.max_merge       = 50
 params.multiqc         = 500
 params.args_json       = null // null or '{\\"min_median_depth\\":5}'

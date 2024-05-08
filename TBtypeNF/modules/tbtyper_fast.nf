@@ -22,6 +22,7 @@ process TBTYPER {
         ${args_json ? "--args-json $args_json" : ''} \\
         --sample-id $sample \\
         --threads ${task.cpus} \\
-        --max-mix $params.max_mix
+        --max-mix $params.max_mix \\
+        --min-mix-prop $params.min_mix_prop
     """
 }

@@ -23,6 +23,7 @@ process TBTYPER {
         --sample-meta $manifest \\
         --output $params.clean_id \\
         --threads ${task.cpus} \\
-        --max-mix $params.max_mix
+        --max-mix $params.max_mix \\
+        --min-mix-prop $params.min_mix_prop
     """
 }
