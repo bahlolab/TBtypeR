@@ -13,6 +13,7 @@ tbrefine <- function(
     MIN_AC = 2L,
     MIN_SNP_NODE = 5L,
     MIN_VAF_NODE = 0.95,
+    MIN_VAF_ASSIGN = 0.80,
     MAX_VAR_MISSING = 0.05,
     MIN_C_FOLD = 5,
     GLOBAL_MAX_ERROR_RATE = 0.01,
@@ -200,6 +201,75 @@ tbrefine <- function(
         lengths(children_obs)  < lengths(children) ~ 'some_children'
       ))
 
+    ##### CASE ALL CHILDREN #####
+    # filter MIN_VAF_NODE in all sub_branches
+    new_node_snps <-
+      branch_snps %>%
+      filter(case == 'all_children') %>%
+      filter(map_lgl(af, ~ all(. >= MIN_VAF_NODE))) %>%
+      select(branch, vid) %>%
+      chop(vid) %>%
+      rename(phylotype = branch) %>%
+      inner_join(
+        panel %>%
+          select(phylotype, parent_phylotype) %>%
+          distinct(),
+        by = 'phylotype'
+      )
+
+    if (nrow(new_node_snps)) {
+      new_panel_snps <- new_node_snps
+    }
+
+    ##### CASE SOME CHILDREN #####
+    # filter MIN_VAF_NODE in all sub_branches
+    # filter for MIN_SNP_NODE
+    # filter for non-overlapping supersets
+    # add ancestral node(s)
+
+    new_ancestor_snps <-
+      branch_snps %>%
+      filter(case == 'some_children') %>%
+      filter(map_lgl(af, ~ all(. >= MIN_VAF_NODE))) %>%
+      select(vid, branch, sub_branch, depth, ac) %>%
+      unnest(c(sub_branch, depth, ac)) %>%
+      group_by(vid) %>%
+      filter(depth == 1 + suppressWarnings(min(depth))) %>%
+      ungroup() %>%
+      select(-depth) %>%
+      chop(c(sub_branch, ac)) %>%
+      mutate(ac = map_int(ac, sum)) %>%
+      chop(c(ac, vid)) %>%
+      mutate(ac = map_int(ac, sum)) %>%
+      arrange(branch, vid) %>%
+      filter(lengths(vid) > MIN_SNP_NODE) %>%
+      group_by(branch) %>%
+      filter(valid_nodesets(sub_branch, ac)) %>%
+      mutate(labels = label_nodesets(sub_branch)) %>%
+      ungroup() %>%
+      unnest(labels) %>%
+      mutate(across(ends_with('phylotype'), ~ str_c(branch, '[', ., ']'))) %>%
+      mutate(parent_phylotype = str_remove(parent_phylotype, '\\[\\]$')) %>%
+      select(branch, phylotype, parent_phylotype, vid, sub_branch)
+
+    if (nrow(new_ancestor_snps)) {
+      new_parent_phylo <-
+        new_ancestor_snps %>%
+        select(new_parent_phylotype = phylotype,
+               phylotype = sub_branch) %>%
+        mutate(n = lengths(phylotype)) %>%
+        unnest(phylotype) %>%
+        group_by(phylotype) %>%
+        slice(which.min(n)) %>%
+        select(-n)
+
+      new_panel_snps <-
+        bind_rows(
+          new_panel_snps,
+          select(new_ancestor_snps, -sub_branch)
+        )
+    }
+
     ##### CASE TIP_NODE/NO_CHILDREN #####
     # filter new nodes with MIN_SNP_NODE
     # perform heirachical clustering of SNPS in each branch
@@ -212,6 +282,57 @@ tbrefine <- function(
       mutate(vid = as.character(vid)) %>%
       chop(vid) %>%
       filter(lengths(vid) > MIN_SNP_NODE) %>%
+      # where new ancestral nodes are added, split/filter variants
+      left_join(
+        new_ancestor_snps %>%
+          select(branch, new_phy = phylotype, new_vid = vid) %>%
+          chop(-branch),
+        by = 'branch'
+      ) %>%
+      pmap_df(function(branch, vid, new_phy, new_vid) {
+        if (is.null(new_phy)) {
+          return(tibble(branch = branch, vid = vctrs::list_of(vid)))
+        }
+
+        # goal - split branch, vid in 1 + length(new_phy) groups
+        samples <- names(which(rowSums(gt_cand[, vid], na.rm=T) > 0))
+
+        new_sample_phy <-
+          seq_along(new_vid) %>%
+          setNames(.,new_phy) %>%
+          map_dfc(function(i) {
+            gt_cand[samples, as.character(new_vid[[i]])] %>%
+              rowMeans(na.rm = T)
+          }) %>%
+          mutate(sample_id = samples) %>%
+          pivot_longer(-sample_id,
+                       names_to = 'phylotype',
+                       values_to = 'freq') %>%
+          filter(freq > MIN_VAF_ASSIGN) %>%
+          mutate(depth = nchar(phylotype)) %>%
+          group_by(sample_id) %>%
+          filter(depth == max(depth)) %>%
+          ungroup() %>%
+          mutate(phylotype = replace_na(phylotype, branch))
+
+        new_sample_phy %>%
+          select(sample_id, branch = phylotype) %>%
+          chop(sample_id) %>%
+          mutate(ac = map(sample_id, function(sid) {
+            gt_cand[sid, vid] %>%
+              colSums(na.rm = T) %>%
+              tibble::enframe(name = 'vid', value = 'ac') %>%
+              filter(ac > 0)
+          })) %>%
+          select(-sample_id) %>%
+          unnest(ac) %>%
+          select(-ac) %>%
+          group_by(vid) %>%
+          filter(n() == 1L) %>%
+          ungroup() %>%
+          chop(vid)
+      }) %>%
+      # cluster and add new tip nodes
       mutate(data = map2(vid, seq_along(vid),  function(vid, i) {
 
         default <- tibble(phylotype = character(),
@@ -304,7 +425,7 @@ tbrefine <- function(
                   label_phylo(
                     x,
                     root_label = if_else(treeio::rootnode(phylo) %in% node_vars$node, '1', ''),
-                    symbols = letters,
+                    symbols = rev(letters),
                     sep = '',
                     node_labels = seq_len(treeio::Ntip(phylo)) %>% setNames(., node_to_label(phylo, .))
                   ) %>%
@@ -329,81 +450,16 @@ tbrefine <- function(
 
     if (nrow(new_tip_snps)) {
       new_panel_snps <-
-        new_tip_snps %>%
-        mutate(across(ends_with('phylotype'), ~ str_c(branch, .))) %>%
-        mutate(parent_phylotype = str_remove(parent_phylotype,'\\[\\]')) %>%
-        select(phylotype, parent_phylotype, vid)
-    }
-
-
-    ##### CASE ALL CHILDREN #####
-    # filter MIN_VAF_NODE in all sub_branches
-    new_node_snps <-
-      branch_snps %>%
-      filter(case == 'all_children') %>%
-      filter(map_lgl(af, ~ all(. >= MIN_VAF_NODE))) %>%
-      select(branch, vid) %>%
-      chop(vid) %>%
-      rename(phylotype = branch) %>%
-      inner_join(
-        panel %>%
-          select(phylotype, parent_phylotype) %>%
-          distinct(),
-        by = 'phylotype'
-      )
-
-    if (nrow(new_node_snps)) {
-      new_panel_snps <- bind_rows(new_panel_snps, new_node_snps)
-    }
-
-    ##### CASE SOME CHILDREN #####
-    # filter MIN_VAF_NODE in all sub_branches
-    # filter for MIN_SNP_NODE
-    # filter for non-overlapping supersets
-    # add ancestral node(s)
-
-    new_ancestor_snps <-
-      branch_snps %>%
-      filter(case == 'some_children') %>%
-      filter(map_lgl(af, ~ all(. >= MIN_VAF_NODE))) %>%
-      select(vid, branch, sub_branch, depth, ac) %>%
-      unnest(c(sub_branch, depth, ac)) %>%
-      group_by(vid) %>%
-      filter(depth == 1 + suppressWarnings(min(depth))) %>%
-      ungroup() %>%
-      select(-depth) %>%
-      chop(c(sub_branch, ac)) %>%
-      mutate(ac = map_int(ac, sum)) %>%
-      chop(c(ac, vid)) %>%
-      mutate(ac = map_int(ac, sum)) %>%
-      arrange(branch, vid) %>%
-      filter(lengths(vid) > MIN_SNP_NODE) %>%
-      group_by(branch) %>%
-      filter(valid_nodesets(sub_branch, ac)) %>%
-      mutate(labels = label_nodesets(sub_branch)) %>%
-      ungroup() %>%
-      unnest(labels) %>%
-      mutate(across(ends_with('phylotype'), ~ str_c(branch, '[', ., ']'))) %>%
-      mutate(parent_phylotype = str_remove(parent_phylotype, '\\[\\]$')) %>%
-      select(phylotype, parent_phylotype, vid, sub_branch)
-
-    if (nrow(new_ancestor_snps)) {
-      new_parent_phylo <-
-        new_ancestor_snps %>%
-        select(new_parent_phylotype = phylotype,
-               phylotype = sub_branch) %>%
-        mutate(n = lengths(phylotype)) %>%
-        unnest(phylotype) %>%
-        group_by(phylotype) %>%
-        slice(which.min(n)) %>%
-        select(-n)
-
-      new_panel_snps <-
         bind_rows(
           new_panel_snps,
-          select(new_ancestor_snps, -sub_branch)
+          new_tip_snps %>%
+            mutate(across(ends_with('phylotype'), ~ str_c(branch, .))) %>%
+            mutate(parent_phylotype = str_remove(parent_phylotype,'\\[\\]')) %>%
+            mutate(across(ends_with('phylotype'), ~ str_remove(., '\\]\\['))) %>%
+            select(phylotype, parent_phylotype, vid)
         )
     }
+
 
     new_panel_snps <-
       new_panel_snps %>%
