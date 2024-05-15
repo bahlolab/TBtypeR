@@ -88,9 +88,6 @@ tbtype <- function(gds = NULL,
   results <-
     seq_len(nrow(allele_counts)) %>%
     furrr::future_map_dfr(function(i) {
-      # write_lines(str_c(i, rownames(allele_counts)[i], Sys.time(), 'start',
-      #                   sep = '\t'),
-      #             '.tbt_log.txt', append = T)
       x <- tryCatch(
         tbtype_sample(
           phylo = phylo_sub,
@@ -123,9 +120,6 @@ tbtype <- function(gds = NULL,
           stop(e)
         }
       )
-      # write_lines(str_c(i, rownames(allele_counts)[i], Sys.time(), 'end',
-      #                   sep = '\t'),
-      #             '.tbt_log.txt', append = T)
       return(x)
 
     }, .options = furrr::furrr_options(seed = NULL, scheduling = 10L)) %>%
@@ -492,7 +486,8 @@ phy_mix_lh <- function(data, phy_gts_last, phy_gts_search, mix_prop_last, mix_pr
                        max_p_val_perm = 0.001,
                        max_p_val_wsrst = 0.001,
                        n_perm = 1000L,
-                       score_best_only = TRUE) {
+                       score_best_only = TRUE,
+                       adjust_p_values = TRUE) {
 
 
 
@@ -510,7 +505,8 @@ phy_mix_lh <- function(data, phy_gts_last, phy_gts_search, mix_prop_last, mix_pr
     is_scalar_proportion(max_p_val_wsrst),
     is_integerish(n_perm)
   )
-  #
+
+
   site_model_last <- colSums(t(phy_gts_last) * mix_prop_last) %>% force_to_interval()
   site_lh_last <- with(data, binom_likelihood(bac, dp, site_model_last, error_rate, by_site = TRUE))
   lh_last <- sum(site_lh_last)
@@ -563,29 +559,21 @@ phy_mix_lh <- function(data, phy_gts_last, phy_gts_search, mix_prop_last, mix_pr
     slice(which.max(likelihood)) %>%
     ungroup() %>%
     mutate(
+      p_val_wsrst = NA_real_,
+      p_adj_wsrst = NA_real_,
       p_val_perm = NA_real_,
-      p_val_wsrst = NA_real_
+      p_adj_perm = NA_real_,
     ) %>%
     arrange(desc(likelihood))
 
   site_states <- as.factor(unname(site_model_last))
 
-  for (i in seq_along(result$phylotype)) {
-    if (score_best_only & result$likelihood[i] < lh_last) {
-      break
-    }
+  # calc p_val_wsrst - quicker
+  for (i in which(result$likelihood > lh_last)) {
 
     phylotype <- result$phylotype[i]
     mpi <- result$mpi[i]
-    # calc p_val_perm
-    perm_gt <- permute_similar(
-      states = site_states,
-      new_gts = phy_gts_search[, phylotype],
-      n_perm = n_perm
-    )
-    perm_lh <- colSums((perm_gt * site_lh$`1`[, mpi]) + ((1L - perm_gt) * site_lh$`0`[, mpi]))
-    result$p_val_perm[i] <- sum(result$likelihood[i] < perm_lh, na.rm = T) / n_perm
-    # calc p_val_wsrst
+
     site_model <-
       colSums(t(cbind(phy_gts_last, phy_gts_search[, phylotype])) * mix_props[, mpi]) %>%
       force_to_interval()
@@ -598,16 +586,40 @@ phy_mix_lh <- function(data, phy_gts_last, phy_gts_search, mix_prop_last, mix_pr
           paired = TRUE, alternative = "less"
         )$p.value
       )
-    # check if passing
-    if (score_best_only) {
-      if (result$p_val_perm[i] > max_p_val_perm) {
-        next
-      }
-      if (result$p_val_wsrst[i] > max_p_val_wsrst) {
-        next
-      }
+    result$p_adj_wsrst[i] <-
+      p.adjust(result$p_val_wsrst[seq_len(i)], method = 'BH') %>%
+      last()
+  }
+
+  if (adjust_p_values) {
+    result$p_val_wsrst <- result$p_adj_wsrst
+  }
+
+  # calc p_val_perm
+  for (i in which(result$p_val_wsrst <= max_p_val_wsrst)) {
+    phylotype <- result$phylotype[i]
+    mpi <- result$mpi[i]
+
+    perm_gt <- permute_similar(
+      states = site_states,
+      new_gts = phy_gts_search[, phylotype],
+      n_perm = n_perm
+    )
+    perm_lh <- colSums((perm_gt * site_lh$`1`[, mpi]) + ((1L - perm_gt) * site_lh$`0`[, mpi]))
+    result$p_val_perm[i] <- sum(result$likelihood[i] < perm_lh, na.rm = T) / n_perm
+    result$p_adj_perm[i] <-
+      p.adjust(c(na.omit(result$p_val_perm)), method = 'BH') %>%
+      last()
+
+    p <- `if`(adjust_p_values, result$p_adj_perm[i], result$p_val_perm[i])
+
+    if (score_best_only & p <= max_p_val_perm) {
       break
     }
+  }
+
+  if (adjust_p_values) {
+    result$p_val_perm <- result$p_adj_perm
   }
 
   return(result)
