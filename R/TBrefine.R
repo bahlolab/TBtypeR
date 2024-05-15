@@ -332,6 +332,7 @@ tbrefine <- function(
           ungroup() %>%
           chop(vid)
       }) %>%
+      filter(lengths(vid) > MIN_SNP_NODE) %>%
       # cluster and add new tip nodes
       mutate(data = map2(vid, seq_along(vid),  function(vid, i) {
 
@@ -425,7 +426,7 @@ tbrefine <- function(
                   label_phylo(
                     x,
                     root_label = if_else(treeio::rootnode(phylo) %in% node_vars$node, '1', ''),
-                    symbols = rev(letters),
+                    symbols = letters,
                     sep = '',
                     node_labels = seq_len(treeio::Ntip(phylo)) %>% setNames(., node_to_label(phylo, .))
                   ) %>%
