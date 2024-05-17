@@ -170,23 +170,30 @@ is_open_gds <- function(x) {
 #' @export
 #' @importFrom SeqArray seqGetData seqSetFilter seqClose seqOpen
 #' @importFrom magrittr "%>%"
-snp_distance <- function(gds,
-                         regions = TBtypeR::h37rv_core_genome,
-                         allelic_mode = 4L,
-                         min_median_depth = 5L,
-                         max_var_missing = 0.05,
-                         max_sample_missing = 0.05,
-                         min_var_dp_sd = 3,
-                         threads = min(8L, parallel::detectCores())) {
+gds_filter_gt <- function(gds,
+                          regions = TBtypeR::h37rv_core_genome,
+                          allelic_mode = 4L,
+                          MIN_MEDIAN_DEPTH = 5L,
+                          MAX_VAR_MISSING = 0.05,
+                          MAX_SAMPLE_MISSING = 0.05,
+                          MIN_VAR_DP_SD = 3,
+                          DROP_INVARIANT = TRUE,
+                          source = c('GT', 'AD'),
+                          biallelic_only = FALSE,
+                          MIN_C_FOLD = 5) {
+
+  source <- match.arg(source)
 
   assert_that(
     is_gds(gds),
     is.null(regions) || inherits(regions, 'GenomicRanges'),
     is_scalar_integer(allelic_mode) && allelic_mode > 1L,
-    is_scalar_integer(min_median_depth) && min_median_depth >= 0L,
-    is_scalar_proportion(max_sample_missing),
-    is_scalar_proportion(max_var_missing)
+    is_scalar_integer(MIN_MEDIAN_DEPTH) && MIN_MEDIAN_DEPTH >= 0L,
+    is_scalar_proportion(MAX_SAMPLE_MISSING),
+    is_scalar_proportion(MAX_VAR_MISSING),
+    is_scalar_character(source)
   )
+
   # ensure gds is open
   if (!is_open_gds(gds)) {
     warning("Opening closed gds file")
@@ -205,7 +212,7 @@ snp_distance <- function(gds,
   seqSetFilter(gds, seqNumAllele(gds) == allelic_mode, action = 'intersect')
   assert_that(length(seqGetData(gds, 'variant.id')) > 0)
 
-  # assign GT based on allelic depth
+  # assign GT based on allelic depth, create DP
   AD0 <- seqGetData(gds, 'annotation/format/AD')$data
   assert_that(ncol(AD0) %% allelic_mode == 0)
 
@@ -213,7 +220,8 @@ snp_distance <- function(gds,
   nvar <- ncol(AD0) / allelic_mode
 
   GT <- matrix(0L, nrow=nsam, ncol=nvar) %>%
-    set_rownames(seqGetData(gds, 'sample.id'))
+    set_rownames(seqGetData(gds, 'sample.id')) %>%
+    set_colnames(seqGetData(gds, 'variant.id'))
 
   AD_MX <- AD0[, 1 + allelic_mode * (seq_len(nvar) - 1L)]
   DP <- AD_MX
@@ -228,10 +236,60 @@ snp_distance <- function(gds,
 
   rm(AD0, AD_i, AD_MX)
 
+  if (source == 'GT') {
+    # replace GT with called genotypes
+
+    gt12 <- seqGetData(gds, 'genotype')
+    GT <- gt12[1,,]
+    GT[GT != gt12[2,,]] <- NA_integer_
+    rownames(GT) <- seqGetData(gds, 'sample.id')
+    colnames(GT) <- seqGetData(gds, 'variant.id')
+    rm(gt12)
+
+  }
+
+  if (biallelic_only) {
+    AAC <- matrix(0L, nrow = allelic_mode, ncol = ncol(GT))
+    for (i in seq_len(allelic_mode)) {
+      AAC[i, ] <- as.integer(colSums(GT == i-1L, na.rm = T))
+    }
+    AACO <- apply(AAC, 2, order, decreasing = T)
+    AACR <- vapply(seq_len(ncol(AACO)), function(i) AAC[,i][AACO[,i]], integer(nrow(AACO)))
+    CAC <- colSums(AACR[-(1:2), ], na.rm = T)
+    biallelic <- which(AACR[2, ] > MIN_C_FOLD * CAC)
+
+    # redact non-bialleic sites with -1L (make NA after missingness filers)
+    tibble(i = intersect(biallelic, which(CAC > 0))) %>%
+      mutate(
+        a1 = AACO[1, i] -1L,
+        a2 = AACO[2, i] -1L) %>%
+      chop(i) %>%
+      mutate(a12 = map2(a1, a2, ~ sort(c(.x, .y)))) %>%
+      select(i, a12) %>%
+      chop(i) %>%
+      mutate(i = map(i, ~ sort(unique(unlist(.))))) %>%
+      pwalk(function(a12, i) {
+        GT[, i][!GT[, i] %in% c(a12, NA_integer_)] <<- -1L
+      })
+
+    message("Excluded ", ncol(GT) - length(biallelic), '/', nvar, ' variants due not being biallelic')
+    GT <- GT[, biallelic, drop = F]
+    DP <- DP[, biallelic, drop = F]
+  }
+
+  if (DROP_INVARIANT) {
+    drop <- which(colSums(GT, na.rm = T) == colMeans(GT, na.rm = T))
+    if (length(drop)) {
+      message("Excluded ", length(drop), '/', nvar, ' variants due being invariant')
+      GT <- GT[, -drop, drop = F]
+      DP <- DP[, -drop, drop = F]
+    }
+  }
+
   samples_exclude <- integer()
   # filter samples on median depth
   sam_low_dp <-
-    (apply(DP, 1, median, na.rm = TRUE) < min_median_depth) %>%
+    (apply(DP, 1, median, na.rm = TRUE) < MIN_MEDIAN_DEPTH) %>%
     replace_na(FALSE)
 
   if (sum(sam_low_dp)) {
@@ -240,7 +298,7 @@ snp_distance <- function(gds,
   }
 
   # filter samples by missingness
-  sam_high_miss <- (rowSums(is.na(GT)) / nvar > max_sample_missing) & (!sam_low_dp)
+  sam_high_miss <- (rowSums(is.na(GT)) / nvar > MAX_SAMPLE_MISSING) & (!sam_low_dp)
 
   if (sum(sam_high_miss)) {
     message("Excluded ", sum(sam_high_miss), '/', nsam, ' samples due to high missingness')
@@ -257,7 +315,7 @@ snp_distance <- function(gds,
 
   # filter variants by depth
   var_med_dp <- apply(DP, 2, median, na.rm=TRUE)
-  min_var_med_dp <- mean(var_med_dp) - min_var_dp_sd*sd(var_med_dp)
+  min_var_med_dp <- mean(var_med_dp) - MIN_VAR_DP_SD*sd(var_med_dp)
   var_low_dp <- (var_med_dp < min_var_med_dp) %>% replace_na(FALSE)
 
   if (sum(var_low_dp)) {
@@ -266,7 +324,7 @@ snp_distance <- function(gds,
   }
 
   # filter variants by missingness
-  var_high_miss <- (colSums(is.na(GT)) / nsam > max_var_missing) & (!var_low_dp)
+  var_high_miss <- (colSums(is.na(GT)) / nsam > MAX_VAR_MISSING) & (!var_low_dp)
 
   if (sum(var_high_miss)) {
     message("Excluded ", sum(var_high_miss), '/', nvar, ' variants due to high missingness')
@@ -275,12 +333,45 @@ snp_distance <- function(gds,
 
   if (length(variants_exclude)) {
     GT <- GT[, -variants_exclude]
-    DP <- DP[, -variants_exclude]
+    # DP <- DP[, -variants_exclude]
     nvar <- ncol(GT)
   }
 
-  pdist(GT, threads = threads)
+  if (biallelic_only) {
+    GT[GT == -1L] <- NA_integer_
+  }
 
+  GT
+}
+
+#' @export
+snp_distance <- function(
+    gds,
+    regions = TBtypeR::h37rv_core_genome,
+    allelic_mode = 4L,
+    MIN_MEDIAN_DEPTH = 5L,
+    MAX_VAR_MISSING = 0.05,
+    MAX_SAMPLE_MISSING = 0.05,
+    MIN_VAR_DP_SD = 3,
+    source = c('GT', 'AD'),
+    threads = min(8L, parallel::detectCores())
+)
+{
+
+  source <- match.arg(source)
+
+  GT <- gds_filter_gt(
+    gds = gds,
+    regions = regions,
+    allelic_mode = 4L,
+    MIN_MEDIAN_DEPTH = MIN_MEDIAN_DEPTH,
+    MAX_VAR_MISSING = MAX_VAR_MISSING,
+    MAX_SAMPLE_MISSING = MAX_SAMPLE_MISSING,
+    MIN_VAR_DP_SD = MIN_VAR_DP_SD,
+    source = source
+  )
+
+  pdist(GT, threads = threads)
 }
 
 #' @importFrom SeqArray seqOpen seqVCF2GDS

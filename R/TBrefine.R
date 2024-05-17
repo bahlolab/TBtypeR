@@ -60,21 +60,23 @@ tbrefine <- function(
 
     # exclude panel sites
     seqResetFilter(gds)
+    seqSetFilter(gds, sample.id = sample_phylotypes$sample_id, action = 'intersect')
     seqSetFilter(gds, !seqGetData(gds, 'position') %in% tbt_panel$pos)
-    seqSetFilter(gds, sample.id = sample_phylotypes$sample_id)
 
     # get sample genotypes
-    gt12 <- seqGetData(gds, 'genotype')
-    gt <- gt12[1,,]
-    gt[gt != gt12[2,,]] <- NA_integer_
-    rownames(gt) <- seqGetData(gds, 'sample.id')
-    colnames(gt) <- seqGetData(gds, 'variant.id')
-    rm(gt12)
-
-    # filter missing sites
-    keep <- colSums(!is.na(gt)) / nrow(gt) > MAX_VAR_MISSING
-    seqSetFilter(gds, variant.id = seqGetData(gds, 'variant.id')[keep])
-    gt <- gt[, keep]
+    gt <- gds_filter_gt(
+      gds,
+      regions = NULL,
+      allelic_mode = 4L,
+      MIN_MEDIAN_DEPTH = 5L,
+      MAX_VAR_MISSING = 0.05,
+      MAX_SAMPLE_MISSING = 0.05,
+      MIN_VAR_DP_SD = 3,
+      DROP_INVARIANT = TRUE,
+      source = 'GT',
+      biallelic_only = TRUE,
+      MIN_C_FOLD = 5
+    )
 
     # set of biallelic SNPs
     cand_snps <-
@@ -103,22 +105,21 @@ tbrefine <- function(
         by = 'vid'
       ) %>%
       # only allow A allele == reference allele
-      filter(aid_a == 0L) %>%
-      mutate(alt = map2_chr(alt, aid_b, \(alt, i) { str_split(alt, ',', n=3, T)[i] }))
+      # filter(aid_a == 0L) %>%
+      mutate(alt = map2_chr(alt, pmax(aid_a, aid_b), \(alt, i) { str_split(alt, ',', n=3, T)[i] }))
 
     # binarise sample gts at candidate sites
     gt_cand <- gt[, as.character(cand_snps$vid)]
 
     cand_snps %>%
-      select(vid, aid_b) %>%
+      select(vid, aid_a, aid_b) %>%
       mutate(vid = as.character(vid)) %>%
       chop(vid) %>%
-      pwalk(function(vid, aid_b) {
+      pwalk(function(vid, aid_a, aid_b) {
+        a <- which(gt_cand[, vid] == aid_a)
         b <- which(gt_cand[, vid] == aid_b)
-        ot <- setdiff(which(gt_cand[, vid] > 0 ), b)
-        if (length(ot)) {
-          gt_cand[, vid][ot] <<- 0L
-        }
+        gt_cand[, vid] <<- NA_integer_
+        gt_cand[, vid][a] <<- 0L
         gt_cand[, vid][b] <<- 1L
       })
 
@@ -127,6 +128,7 @@ tbrefine <- function(
       panel %>%
       bind_rows(
         sample_phylotypes %>%
+          filter(sample_id %in% rownames(gt_cand)) %>%
           transmute(chrom = 'chrom',
                     pos = 1L,
                     ref = 'A',
@@ -157,7 +159,7 @@ tbrefine <- function(
     branch_sample %>%
       pwalk(function(branch, sample_id){
         branch_ac[branch, ] <<- colSums(gt_cand[sample_id, , drop=F], na.rm = TRUE)
-        branch_af[branch, ] <<-  branch_ac[branch, ] / colSums(!is.na(gt_cand[sample_id, ,drop=F]))
+        branch_af[branch, ] <<- branch_ac[branch, ] / colSums(!is.na(gt_cand[sample_id, ,drop=F]))
       })
 
     branch_snps <-
@@ -261,12 +263,13 @@ tbrefine <- function(
         unnest(phylotype) %>%
         group_by(phylotype) %>%
         slice(which.min(n)) %>%
+        ungroup() %>%
         select(-n)
 
       new_panel_snps <-
         bind_rows(
           new_panel_snps,
-          select(new_ancestor_snps, -sub_branch)
+          select(new_ancestor_snps, -sub_branch, -branch)
         )
     }
 
@@ -466,7 +469,7 @@ tbrefine <- function(
       new_panel_snps %>%
       unnest(vid) %>%
       inner_join(cand_snps, by = 'vid') %>%
-      mutate(genotype = 1L,
+      mutate(genotype = if_else(aid_a == 0L, 1L, 0L),
              reference = 'TBrefineR') %>%
       select(chrom, pos, ref, alt, genotype, phylotype, parent_phylotype, reference)
   }
