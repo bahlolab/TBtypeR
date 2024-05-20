@@ -34,9 +34,28 @@ as_tbl_tree <- function(df) {
   df
 }
 
-# convert a dataframe to phylo using tidy_tree
+# convert a dataframe to phylo
 df2phylo <- function(df) {
-  tidytree::as.phylo(as_tbl_tree(df))
+
+  sorted <-
+    select(df, parent, node, any_of('branch.length'), label) %>%
+    arrange(node)
+
+  root <- with(sorted, parent[parent == node])
+
+  phy <- list(
+    edge = as.matrix(sorted[-root, 1:2]),
+    tip.label = sorted$label[1:(root-1)],
+    node.label = sorted$label[root:nrow(sorted)],
+    Nnode = nrow(sorted) - root + 1L
+  )
+  if ('branch.length' %in% names(sorted)) {
+    phy$edge.length <- sorted$branch.length[-root]
+  }
+
+  class(phy) <- 'phylo'
+  check_phylo(phy)
+  ape::ladderize(phy)
 }
 
 # drop all tips from a phylo object
@@ -59,8 +78,12 @@ condense_phylo <- function(phylo, nodes_rm) {
     is_integerish(nodes_rm)
   )
 
+  if (length(nodes_rm) == 0) {
+    return(phylo)
+  }
+
   tbl_tree <-
-    with(as_tibble(phylo), {
+    with(as_tibble_shh(phylo), {
       for (i in nodes_rm) {
         nd <- node[i]
         par <- parent[i]
@@ -91,19 +114,21 @@ condense_phylo <- function(phylo, nodes_rm) {
     c() %>%
     unique()
 
-  bind_rows(
-    filter(tbl_tree, node %in% new_tip) %>%
-      mutate(
-        node = seq_along(new_tip),
-        parent = length(new_tip) + match(parent, new_order)
-      ),
-    filter(tbl_tree, node %in% new_inner) %>%
-      mutate(
-        parent = length(new_tip) + match(parent, new_order),
-        node = length(new_tip) + match(node, new_order)
-      )
-  ) %>%
-    df2phylo()
+  DF <-
+    bind_rows(
+      filter(tbl_tree, node %in% new_tip) %>%
+        mutate(
+          node = seq_along(new_tip),
+          parent = length(new_tip) + match(parent, new_order)
+        ),
+      filter(tbl_tree, node %in% new_inner) %>%
+        mutate(
+          parent = length(new_tip) + match(parent, new_order),
+          node = length(new_tip) + match(node, new_order)
+        )
+    )
+
+  df2phylo(DF)
 }
 
 #' @importFrom dplyr mutate rowwise ungroup n slice pull group_by select left_join distinct arrange
@@ -185,9 +210,9 @@ phylo_geno_dist <- function(phylo, geno, min_dist = 1L, as_phylo = FALSE) {
 #' @importFrom purrr map
 label_phylo <- function(phylo,
                         node_labels = integer(0L),
-                        sep = "|",
-                        anc_sep = "-A",
-                        root_label = "root") {
+                        sep = ".",
+                        root_label = "root",
+                        symbols = NULL) {
   assert_that(
     is_phylo(phylo),
     is_integerish(node_labels) & is_dictionaryish(node_labels),
@@ -202,41 +227,20 @@ label_phylo <- function(phylo,
   }
 
   in_tree <-
-    as_tibble(phylo) %>%
+    as_tibble_shh(phylo) %>%
     mutate(
       label_new = names(node_labels)[match(node, node_labels)],
       children = map(node, function(nd) treeio::child(phylo, nd)),
       depth = n_ancestor(phylo, node),
-      nchild = lengths(children),
-      is_anc = (nchild == 1) & (!node %in% node_labels)
+      nchild = lengths(children)
     )
 
-  anc <-
-    filter(in_tree, is_anc) %>%
-    mutate(child = unlist(children)) %>%
-    {
-      `if`(
-        nrow(.) > 0,
-        with(., {
-          level <- rep(1L, length(node))
-          descendent <- child
-          for (dp in unique(sort(setdiff(depth, max(depth)), T))) {
-            ii <- which(depth == dp) %>% purrr::keep(~ child[.] %in% node)
-            level[ii] <- level[match(child[ii], node)] + 1L
-            descendent[ii] <- descendent[match(child[ii], node)]
-          }
-          tibble(label_old = label, level = level, descendent = descendent)
-        }),
-        tibble(label_old = character(), level = integer(), descendent = integer())
-      )
-    }
-
   new_labs <-
-    condense_phylo(phylo, filter(in_tree, is_anc) %>% pull(node)) %>%
+    phylo %>%
     {
-      mutate(as_tibble(.),
-        depth = n_ancestor(., node),
-        children = map(node, function(nd) Children(., nd))
+      mutate(as_tibble_shh(.),
+             depth = n_ancestor(., node),
+             children = map(node, function(nd) Children(., nd))
       )
     } %>%
     left_join(select(in_tree, label, label_new, nchild), "label") %>%
@@ -245,29 +249,27 @@ label_phylo <- function(phylo,
       for (dp in seq_len(max(depth) + 1L) - 1L) {
         slen <- length(label_new)
         for (i in which(depth == dp)) {
-          ch <- children[[i]] %>% discard(~ !is.na(label_new[.]))
-          label_new[ch] <- str_c(label_new[i], sep = sep, seq_along(ch))
+          ch <- children[[i]] %>% purrr::discard(~ !is.na(label_new[.]))
+          if (!is.null(symbols)) {
+            if (length(ch) > length(symbols)) {
+              symbols <- c(symbols, str_c('#', seq.int(length(symbols)+1, length(ch))))
+            }
+            label_new[ch] <- str_c(label_new[i], sep = sep, symbols[seq_along(ch)])
+          } else {
+            label_new[ch] <- str_c(label_new[i], sep = sep, seq_along(ch))
+          }
         }
       }
       tibble(label_old = label, label_new = label_new)
     })
 
   in_tree %>%
-    select(parent, node, branch.length, label_old = label) %>%
+    select(parent, node, any_of('branch.length'), label_old = label) %>%
     left_join(new_labs, "label_old") %>%
-    (function(df) {
-      select(df, label_desc = label_new, descendent = node) %>%
-        right_join(anc, "descendent") %>%
-        mutate(label_anc = str_c(label_desc, anc_sep, level)) %>%
-        select(label_old, label_anc) %>%
-        {
-          left_join(df, ., "label_old")
-        }
-    }) %>%
-    mutate(label_new = if_else(is.na(label_new), label_anc, label_new)) %>%
-    select(parent, node, branch.length, label = label_new) %>%
+    select(parent, node, any_of('branch.length'), label = label_new) %>%
     df2phylo()
 }
+
 
 get_tips_by_nodelab <- function(phylo, node_lab) {
   as_tibble(phylo) %>%
@@ -536,4 +538,11 @@ get_anc_list <- function(phylo, node, as_label = FALSE) {
   m_get_anc_rec <- memoise::memoise(get_anc_rec)
   map(node, m_get_anc_rec)
 }
+
+as_tibble_shh <- function(phylo) {
+  tbl <- as_tibble(phylo)
+  class(tbl) <- setdiff(class(tbl), 'tbl_tree')
+  tbl
+}
+
 

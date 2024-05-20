@@ -64,13 +64,25 @@ panel_to_geno <- function(panel) {
   return(geno)
 }
 
-panel_to_phylo <- function(panel) {
-  check_panel(panel)
+panel_to_phylo <- function(panel, minimal_checks = FALSE) {
+
+  if (minimal_checks) {
+    assert_that(
+      is.data.frame(panel),
+      all(c('phylotype', 'parent_phylotype') %in% colnames(panel))
+    )
+  } else {
+    check_panel(panel)
+  }
 
   edges <-
     panel %>%
     select(from = parent_phylotype, to = phylotype) %>%
     distinct()
+
+  # check acyclic
+  gr <- igraph::graph_from_edgelist(as.matrix(edges), directed = T)
+  assertthat::assert_that(igraph::is.dag(gr))
 
   root <- setdiff(edges$from, edges$to)
   tips <- setdiff(edges$to, edges$from)
@@ -121,7 +133,7 @@ check_panel <- function(panel, mode = c("phylo", "none", "dr")) {
   invisible(TRUE)
 }
 
-check_phylo <- function(phy) {
+check_phylo <- function(phy, allow_single_children = TRUE) {
   # Based on ape::checkValidPhylo
 
   assertthat::assert_that(
@@ -145,7 +157,7 @@ check_phylo <- function(phy) {
     # each tip must appear once in 'edge'
     all(tab[seq_len(n)] == 1),
     # all nodes should appear at least twice in 'edge'
-    all(tab[n + seq_len(m)] > 1),
+    allow_single_children || all(tab[n + seq_len(m)] > 1),
     # nodes and tips should appear only once in the 2nd column of 'edge'
     all(table(phy$edge[, 2]) == 1),
     # the root node should not appear in the 2nd column of 'edge'
