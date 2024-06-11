@@ -7,6 +7,8 @@ output: 'github_document'
 library(tidyverse)
 samples_meta <- read_rds('02_data/nejmoa1800474_subset_metadata.rds')
 ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+
+if (!dir.exists('02_data')) { dir.create('02_data') }
 ```
 
 * 950 random samples from DOI:10.1056/NEJMoa1800474 with:
@@ -110,10 +112,11 @@ pred_100X_smry <-
   pred_100X %>% 
   group_by(sample) %>% 
   summarise(n_pred_mix = sum(n_mix > 1))
+
+saveRDS(pred_100X_smry, '02_data/pred_100X_smry.rds')
 ```
 
 * Extract Sample BAF, compare with number of tools prediction mixture to find threshold for likely non-mixed samples
-
 
 ```{r sample_BAF, eval=FALSE}
 library(SeqArray)
@@ -167,6 +170,7 @@ saveRDS(baf_smry, '02_data/baf_smry.rds')
 # set threshold at quartile Q3 of BAF for samples not predicted as mixed by any method
 # consider all samples with mean BAF less than threshold as unmixed
 baf_smry <- readRDS('02_data/baf_smry.rds')
+pred_100X_smry <- readRDS('02_data/pred_100X_smry.rds')
 
 baf_pred_smry <-
   baf_smry %>% 
