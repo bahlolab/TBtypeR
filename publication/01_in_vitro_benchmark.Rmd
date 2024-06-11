@@ -9,48 +9,56 @@ output: 'github_document'
 library(tidyverse)
 source('functions.R')
 ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+
+if (!dir.exists('01_data')) { dir.create('01_data') }
 ```
 
-```{r download_mixinfect_results, eval=FALSE}
+```{r download_mixinfect_results}
 # MixInfect - https://doi.org/10.1186/s12864-018-4988-z
-# pull table from pub using rvest
-url <-  "https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4988-z/tables/1"
-rvest::read_html(url) %>%
-  rvest::html_nodes("table") %>%
-  rvest::html_table(fill = T) %>%
-  first() %>%
-  (\(x) set_colnames(x[-1,], c(x[1,]))) %>%
-  janitor::clean_names() %>%
-  readr::type_convert() %>%
-  saveRDS('01_data/mi_tab_1.rds')
+if (!file.exists('01_data/mi_tab_1.rds')) {
+  # pull table from pub using rvest
+  url <-  "https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4988-z/tables/1"
+  rvest::read_html(url) %>%
+    rvest::html_nodes("table") %>%
+    rvest::html_table(fill = T) %>%
+    first() %>%
+    (\(x) set_colnames(x[-1,], c(x[1,]))) %>%
+    janitor::clean_names() %>%
+    readr::type_convert() %>%
+    saveRDS('01_data/mi_tab_1.rds')
+}
 ```
 
 ```{r download_splitstrains_results, eval=FALSE}
 # SplitStrains - https://doi.org/10.1099/mgen.0.000607
 
-mgen_0_000607_supp_url <- 'https://ndownloader.figstatic.com/files/28367802'
-mgen_0_000607_supp_fn <- file.path('02', 'MGEN_0_00067_supp.xlsx')
-print(file.exists(mgen_0_000607_supp_fn))
-if (!file.exists(mgen_0_000607_supp_fn)) { download.file(mgen_0_000607_supp_url, mgen_0_000607_supp_fn) }
-# 
-# excel has converted this columrn to dates which
-lin_date_fix <- c(
-  '1/1' = 43831, '2/2' = 43863, '4/3' = 43924, '3/4' = 43894,'4/4' = 43925,
-  '1/3' = 43833, '3/1' = 43891, '2/4' = 43865, '4/2' = 43923
-)
-
-suppressWarnings(readxl::read_excel(mgen_0_000607_supp_fn, sheet = 'Dataset A', skip = 3)) %>%
-  janitor::clean_names() %>%
-  mutate(major_minor_lineage = if_else(
-    major_minor_lineage %in% lin_date_fix,
-    names(lin_date_fix)[match(major_minor_lineage, lin_date_fix)],
-    as.character(major_minor_lineage)
-  )) %>%
-  nest(split_strains = 7:9,
-       mixed_infection_estimator = 10:11,
-       quant_tb = 12:13,
-       mix_infect = 14:19) %>%
-  saveRDS('01_data/ss_sup_tab.rds')
+if (!file.exists('01_data/ss_sup_tab.rds')) {
+  mgen_0_000607_supp_url <- 'https://ndownloader.figstatic.com/files/28367802'
+  mgen_0_000607_supp_fn <- file.path('01_data', 'MGEN_0_00067_supp.xlsx')
+  print(file.exists(mgen_0_000607_supp_fn))
+  download.file(mgen_0_000607_supp_url, mgen_0_000607_supp_fn)
+  # 
+  # excel has converted this columrn to dates which
+  lin_date_fix <- c(
+    '1/1' = 43831, '2/2' = 43863, '4/3' = 43924, '3/4' = 43894,'4/4' = 43925,
+    '1/3' = 43833, '3/1' = 43891, '2/4' = 43865, '4/2' = 43923
+  )
+  
+  suppressWarnings(readxl::read_excel(mgen_0_000607_supp_fn, sheet = 'Dataset A', skip = 3)) %>%
+    janitor::clean_names() %>%
+    mutate(major_minor_lineage = if_else(
+      major_minor_lineage %in% lin_date_fix,
+      names(lin_date_fix)[match(major_minor_lineage, lin_date_fix)],
+      as.character(major_minor_lineage)
+    )) %>%
+    nest(split_strains = 7:9,
+         mixed_infection_estimator = 10:11,
+         quant_tb = 12:13,
+         mix_infect = 14:19) %>%
+    saveRDS('01_data/ss_sup_tab.rds')
+  
+  file.remove(mgen_0_000607_supp_fn)
+}
 ```
 
 ```{r download_ref, eval=FALSE}
@@ -75,18 +83,11 @@ cd 01_data/fetchngs
 nextflow run nf-core/fetchngs --input ids.csv --outdir output --download_method sratools -resume
 ```
 
-```{bash download_fastqs, eval=FALSE}
-mkdir -p './01_data/fastq'
-cd './01_data/fastq'
-bash 00.fasterq_dump.in_vitro.sh
-```
-
 * Run benchmark pipeline for TBtypeR, Fastlin, TBProfiler, QuantTB, SplitStrains and MixInfect
 
 ```{r prep_benchmark, eval=FALSE}
 # run 0.fasteq_dump.sh to download all fastqs first
 input_fastq_dir <- './01_data/fetchngs/output/fastq/'
-
 
 # create directory to run through all tools in  TBtypeNF benchmark
 if (!dir.exists('01_data/benchmark')) {
@@ -114,8 +115,7 @@ cd "01_data/benchmark"
 nextflow run ../../../TBtypeNF/main.nf
 ```
 
-* Run benchmark pipeline for FastTBtypeR as well as Fastlin, TBProfiler, and QuantTB with TBtypeR barcode (+TBT)
-
+* Run benchmark pipeline for FastTBtypeR as well as Fastlin, TBProfiler, and QuantTB with TBtypeR barcode (+BC)
 
 ```{r prep_benchmark_var, eval=FALSE}
 # copy nextflow config
@@ -127,53 +127,26 @@ cd "04/benchmark"
 nextflow run ../../TBtypeNF/main.nf
 ```
 
-```{r save_bench_results, eval=FALSE}
-iv_bench_res_raw <- 
-  bind_rows(
-    read_tsv('01_data/benchmark/output/combined_results.tsv'),
-    read_tsv('01_data/benchmark/output-var/combined_results.tsv') %>% 
-      mutate(method = if_else(
-        method == 'FastTBtypeR',
-        method,
-        str_c(method, ' (+TBT)')))
-  ) %>% 
-  mutate(
-    method = str_replace(method, 'fastlin', 'Fastlin'),
-    method = str_replace(method, 'quanttb', 'QuantTB'),
-  )
-
-saveRDS(iv_bench_res_raw, '01_data/iv_bench_res_raw.rds')
+```{r save_bench_results}
+if (!file.exists('01_data/iv_bench_res_raw.rds')) {
+  iv_bench_res_raw <- 
+    bind_rows(
+      read_tsv('01_data/benchmark/output/combined_results.tsv'),
+      read_tsv('01_data/benchmark/output-var/combined_results.tsv') %>% 
+        mutate(method = if_else(
+          method == 'FastTBtypeR',
+          method,
+          str_c(method, ' (+BC)')))
+    ) %>% 
+    mutate(
+      method = str_replace(method, 'fastlin', 'Fastlin'),
+      method = str_replace(method, 'quanttb', 'QuantTB'),
+    )
+  
+  saveRDS(iv_bench_res_raw, '01_data/iv_bench_res_raw.rds')
+}
 ```
 
-
-```{r save_bench_results, eval=FALSE}
-read_tsv('01_data/benchmark/output/SplitStrains.results.tsv') %>% 
-  View()
-
-A <-
-  read_tsv('01_data/benchmark/output/combined_results.tsv')
-B <-
-  read_tsv('01_data/benchmark/output/combined_results.tsv') %>% 
-  left_join(
-    read_tsv('01_data/benchmark/output/SplitStrains.results.tsv') %>% 
-      transmute(
-        method = 'SplitStrains',
-        sample = str_extract(file, 'ERR[0-9]+'),
-        strain = NA_character_,
-        proportion = proportions) %>% 
-      separate_rows(proportion) %>% 
-      mutate(proportion = as.numeric(proportion)),
-    by = c('method', 'sample', 'strain'),
-    suffix  = c('', '_2')
-  ) %>% 
-  mutate(proportion = if_else(method == 'SplitStrains', proportion_2, proportion)) %>% 
-  select(-proportion_2) %>% 
-  distinct()
-
-B %>% 
-  write_tsv('01_data/benchmark/output/combined_results.tsv')
-
-```
 * Summarise performance of each tool
 
 ```{r summarise_predictions}
@@ -228,15 +201,13 @@ iv_bench_metrics <-
             MAE = MAE(100*minor_prop, 100*minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  mutate(rank = ordered(rank(desc(nMCC)))) %>% 
+  mutate(rank = ordered(rank(desc(MCC)))) %>% 
   arrange(desc(rank)) %>% 
   mutate(method = as_factor(method)) %>% 
   arrange(rank) %>% 
   select(-rank)
 
 saveRDS(iv_bench_metrics, '01_data/iv_bench_metrics.rds')
-
-iv_bench_metrics
 ```
 
 
