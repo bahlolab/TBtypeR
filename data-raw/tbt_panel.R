@@ -24,6 +24,7 @@ filter_bc <- function(bc_df, ref_bs) {
     filter(ref == as.character(
       BSgenome::getSeq(ref_bs,
                        GenomicRanges::GRanges('Chromosome', IRanges::IRanges(pos, width = 1))))) %>%
+    filter(ref != alt) %>%
     na.omit() %>%
     add_count(pos) %>% filter(n == 1) %>% select(-n)
 
@@ -234,6 +235,9 @@ usethis::use_data(tbt_panel, overwrite = TRUE, internal = FALSE)
 
 res_dir <- normalizePath(file.path(wd, '..', '..', 'TBtypeNF', 'resources'))
 
-write_tsv(tbt_panel, file.path(res_dir, 'tbt_panel.tsv.bz2'))
+write_tsv(
+  tbt_panel %>% select(-reference), 
+  file.path(res_dir, 'tbt_panel.tsv.bz2')
+)
 
 unlink(wd, recursive = T)

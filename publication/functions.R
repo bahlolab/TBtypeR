@@ -40,9 +40,7 @@ binary_measures <- function(real, predicted, na.rm = TRUE) {
       f1_score = case_when(
         (TP == 0 & FP == 0 & FN == 0) ~ 1,
         (TP == 0 & FP >  0 & FN >  0) ~ 0,
-        TRUE ~ (2 * precision * recall) / (precision + recall))) %>%
-    mutate(nMCC = (MCC + 1) / 2) %>%
-    select(-MCC)
+        TRUE ~ (2 * precision * recall) / (precision + recall)))
 
   return(res)
 }
