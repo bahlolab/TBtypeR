@@ -8,9 +8,11 @@ output: 'github_document'
 library(tidyverse)
 bench_res_raw <- read_rds('03_data/bench_res_raw.rds')
 in_silico_dataset <- read_rds('02_data/in_silico_dataset.rds') 
+
+if (!dir.exists('05_data')) { dir.create('05_data') }
 ```
 
-```{r sing_lin_wide, eval=FALSE}
+```{r table_s1, eval=FALSE}
 # Q1: how similar are methods for non-mixed samples?
 sing_lin <-
   bench_res_raw %>% 
@@ -37,42 +39,51 @@ remap_names <- function(x, panel, renamed_panel) {
   unname(old[x])
 }
 
-sing_lin_wide <-
+table_s1 <-
   sing_lin %>% 
   pivot_wider(names_from = method, values_from = strain) %>% 
   mutate(
-    `Fastlin (+TBT)` = remap_names(
-      `Fastlin (+TBT)`,
+    `Fastlin (+BC)` = remap_names(
+      `Fastlin (+BC)`,
       TBtypeR::tbt_panel,
       TBtypeR:::rename_panel_fastlin(TBtypeR::tbt_panel)),
-    `TBProfiler (+TBT)` = remap_names(
-      `TBProfiler (+TBT)`,
+    `TBProfiler (+BC)` = remap_names(
+      `TBProfiler (+BC)`,
       TBtypeR::tbt_panel,
       TBtypeR:::rename_panel_tbprofiler(TBtypeR::tbt_panel))
   ) %>% 
   select(accession, TBtypeR, starts_with('TBProfiler'), starts_with('Fastlin'))
 
-# saveRDS(sing_lin_wide, '05_data/sing_lin_wide.rds')
-```
-
-```{r}
-# AKA Table S1
-sing_lin_wide <- readRDS('05_data/sing_lin_wide.rds')
+# Use as Table S1
+saveRDS(table_s1, '05_data/table_s1.rds')
 ```
 
 ```{r tbprofiler_v_Fastlin}
+table_s1 <- readRDS('05_data/table_s1.rds')
+
 # compare TBProfiler and Fastlin lineage assignement
 tbp_fl_p <-
-  sing_lin_wide %>% 
+  table_s1 %>% 
   count(agree = TBProfiler == Fastlin) %>% 
   mutate(p = 100 * n / sum(n)) %>% filter(agree) %>% pull(p) %>% round(1)
 
 message('TBProfiler and Fastlin agree ', tbp_fl_p, '%')
 ```
+
+```{r tbprofiler_v_TBtypeR}
+tbp_tbt_bc_p <-
+  table_s1 %>% 
+  count(agree = `TBProfiler (+BC)` == TBtypeR) %>% 
+  mutate(p = 100 * n / sum(n)) %>% filter(agree) %>% pull(p) %>% round(1)
+tbp_tbt_bc_p
+
+message('TBProfiler (+BC) and TBtypeR agree ', tbp_tbt_bc_p, '%')
+```
+
 ```{r}
 # Compare TBtypeR and TBprofile lineage assignments
-sing_lin_status <-
-  sing_lin_wide %>% 
+table_s1_status <-
+  table_s1 %>% 
   pivot_longer(c(-accession, -TBtypeR),
                names_to = 'method',
                values_to = 'strain') %>% 
@@ -83,24 +94,24 @@ sing_lin_status <-
     TRUE                        ~ 'other'
   ))
 
-sing_lin_status_p <-
-  sing_lin_status %>% 
+table_s1_status_p <-
+  table_s1_status %>% 
   count(method, status) %>% 
   group_by(method) %>% 
   mutate(p = 100 * n / sum(n))
 
-sing_lin_status_p %>% 
+table_s1_status_p %>% 
   filter(method == 'TBProfiler') %>% 
   with(str_c('TBProfiler ', status,' ', round(p, 1), '%', '\n')) %>% 
   message()
 
-sing_lin_status_p %>% 
+table_s1_status_p %>% 
   filter(method == 'TBProfiler', str_detect(status, 'detailed'))
 
-sing_lin_status_p %>% 
+table_s1_status_p %>% 
   filter(method == 'TBProfiler', status == 'other')
 
-sing_lin_status %>% 
+table_s1_status %>% 
   filter(method == 'TBProfiler', status == 'other') %>% 
   count(TBtypeR, strain) %>% 
   arrange(desc(n)) 
