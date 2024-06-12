@@ -29,11 +29,6 @@ wget https://raw.githubusercontent.com/bahlolab/TBtypeR/main/TBtypeNF/resources/
 nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --manifest my_manifest.tsv
 ```
 
-
-```{bash, eval=FALSE}
-nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --manifest my_manifest.tsv --fast
-```
-
 ### TBtypeNF Parameters
 
 | Parameter | Description                             | Default Value  |
@@ -49,6 +44,9 @@ nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --ma
 #### FastTBtypeNF
 A faster workflow which skips alignment and quality control reporting is implemented by using [Fastlin](https://github.com/rderelle/fastlin) to generate allele counts for use by TBtypeR. This is generally 10x faster to run and gives near identical results. To use this mode supply the parameter `--fast` on the command line, e.g.:
 
+```{bash, eval=FALSE}
+nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --manifest my_manifest.tsv --fast
+```
 
 ## The R package: TBtypeR
 The easiest way to use `TBtypeR` is through the `TBtypeNF` pipeline. However, additional parameters and customisation is available by using the R package directly. `TBtypeR` can be installed with `devtools` as follows:
