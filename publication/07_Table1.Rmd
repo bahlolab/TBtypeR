@@ -6,12 +6,13 @@ output: 'github_document'
 
 ```{r setup}
 library(tidyverse)
-nMCC_to_MCC <- function(x) { rename(x, MCC = nMCC) %>% mutate(MCC = MCC*2 - 1) }
 
-iv_bench_metrics <- readRDS('01_data/iv_bench_metrics.rds') %>% mutate(method = as.character(method)) %>% nMCC_to_MCC()
-is_duo_bench_metrics <- readRDS('03_data/is_duo_bench_metrics.rds') %>% mutate(method = as.character(method)) %>% nMCC_to_MCC()
-is_trio_bench_metrics <- readRDS('03_data/is_trio_bench_metrics.rds') %>% mutate(method = as.character(method)) %>% nMCC_to_MCC()
+iv_bench_metrics <- readRDS('01_data/iv_bench_metrics.rds') %>% mutate(method = as.character(method))
+is_duo_bench_metrics <- readRDS('03_data/is_duo_bench_metrics.rds') %>% mutate(method = as.character(method))
+is_trio_bench_metrics <- readRDS('03_data/is_trio_bench_metrics.rds') %>% mutate(method = as.character(method))
 runtime_smry <- readRDS('04_data/runtime_smry.rds')
+
+if (!dir.exists('07_data')) { dir.create('07_data') }
 ```
 
 
