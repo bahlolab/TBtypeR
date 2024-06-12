@@ -6,7 +6,7 @@ output: 'github_document'
 ```{r setup, message=FALSE, warning=FALSE}
 library(tidyverse)
 
-nMCC_to_MCC <- function(x) { rename(x, MCC = nMCC) %>% mutate(MCC = MCC*2 - 1) }
+if (!dir.exists('08_data')) { dir.create('08_data') }
 
 bimix_tbl <- readRDS('03_data/bimix_tbl.rds')
 
@@ -33,28 +33,26 @@ method_mae_label <-
   mutate(label = as_factor(str_c(method, '\nMAE=', format(MAE))))
 ```
 
-
 ```{r panel_A}
 panel_A <-
   bind_rows(
   is_duo_by_depth %>% 
-    filter(measure %in% c('nMCC')) %>% 
+    filter(measure %in% c('MCC')) %>% 
     mutate(x_name = 'Coverage') %>% 
     rename(x_value = depth,
-           nMCC = value),
+           MCC = value),
   is_duo_by_mp %>% 
-    filter(measure %in% c('nMCC')) %>% 
-    mutate(x_name = 'MSF (%)') %>% 
+    filter(measure %in% c('MCC')) %>% 
+    mutate(x_name = 'Minor Strain Fraction (%)') %>% 
     rename(x_value = minor_percent,
-           nMCC = value),
+           MCC = value),
   is_duo_by_dist %>% 
-    filter(measure %in% c('nMCC')) %>% 
+    filter(measure %in% c('MCC')) %>% 
     mutate(x_name = 'SNP Distance Bin') %>% 
     rename(x_value = dist_bin,
-           nMCC = value)) %>% 
+           MCC = value)) %>% 
   filter(method %in% method_order) %>%
   mutate(method = factor(method, method_order)) %>% 
-  nMCC_to_MCC() %>% 
   select(method, x_name, x_value, MCC) %>% 
   ggplot(aes(
     x = x_value, 
@@ -78,7 +76,7 @@ panel_A <-
                                 minor_breaks = NULL), 
              NULL))
 # saveRDS(panel_A$data, '08_data/fig_1A_data.rds')
-# panel_A
+panel_A
 ```
 
 ```{r panel_B}
@@ -91,7 +89,7 @@ mae_smry <-
   filter(minor_percent_pred > 0) %>% 
   group_by(method, minor_percent) %>% 
   summarise(MAE = median(abs(minor_percent_pred - minor_percent)) %>% round(2),
-            status = case_when(
+            Status = case_when(
               MAE < 2 ~ 'MAE < 2%',
               MAE < 5 ~ 'MAE < 5%',
               TRUE    ~ 'MAE ≥ 5%') %>% 
@@ -106,13 +104,13 @@ panel_B <-
   filter(minor_percent_pred > 0) %>% 
   left_join(mae_smry, by = join_by(method, minor_percent)) %>% 
   mutate(method = factor(method, method_order)) %>%
-  select(method, status, id, minor_percent, minor_percent_pred) %>% 
+  select(method, Status, id, minor_percent, minor_percent_pred) %>% 
   arrange(method, id) %>% 
   ggplot(aes(
     x=minor_percent, 
     y=minor_percent_pred, 
     group = minor_percent,
-    col = status
+    col = Status
   )) +
   geom_abline(col = 'red') +
   geom_boxplot(
@@ -132,12 +130,12 @@ panel_B <-
   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
   coord_fixed() +
   facet_wrap(~method, nrow = 1) +
-  labs(x = 'MSF (%)',
-       y = 'Predicted MSF (%)') +
+  labs(x = 'Minor Strain Fraction (%)',
+       y = 'Predicted Fraction (%)') +
   scale_color_viridis_d(begin = 0, end = 0.7, direction = -1)
 
 # saveRDS(panel_B$data, '08_data/fig_1B_data.rds')
-# panel_B
+panel_B
 ```
 
 ```{r panel_C}
@@ -154,6 +152,7 @@ panel_C <-
   mutate(percent = 100 * n / sum(n)) %>% 
   ungroup() %>% 
   select(label, mix_n, mix_n_pred, percent) %>% 
+  mutate(mix_n_pred = factor(mix_n_pred, 3:1)) %>% 
   ggplot(aes(
     x = mix_n,
     y = percent,
@@ -161,12 +160,18 @@ panel_C <-
   geom_col() +
   facet_wrap(~label, nrow = 1) +
   coord_flip() +
-  guides(fill = guide_legend(title = 'No. Strains\nPredicted')) +
-  theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(),
-        legend.justification = 'top') +
-  labs(x = 'No. Strains', y = 'Percent')
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        legend.justification = 'top', 
+        legend.margin = margin(-23,0,0,0),
+        # legend.position = c(1, 1)
+        )  +
+  guides(fill = guide_legend(title = 'No. Strains\nPredicted', ncol = 1)) +
+  scale_fill_viridis_d(direction = -1) +
+  labs(x = 'No. Strains\nSimulated', y = 'Percent')
 # saveRDS(panel_C$data, '08_data/fig_1C_data.rds')
-# panel_C
+panel_C
 ```
 
 
@@ -180,8 +185,7 @@ suppressWarnings(
   cowplot::plot_grid(
     panel_A + ggtitle('A.') + nomar,
     panel_B   + ggtitle('B.') + nomar,
-    panel_C   + ggtitle('C.') + nomar + 
-      theme(legend.justification = 'top') + guides(fill=guide_legend(ncol=2, title = 'Pred. No.')),
+    panel_C   + ggtitle('C.') + nomar ,
     ncol = 1,
     rel_heights = c(10,10,7),
     align = 'v',
