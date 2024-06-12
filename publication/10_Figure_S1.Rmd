@@ -7,6 +7,8 @@ output: 'github_document'
 ```{r setup, message=FALSE, warning=FALSE}
 library(tidyverse)
 
+if (!dir.exists('10_data')) { dir.create('10_data') }
+
 bimix_tbl <- readRDS('03_data/bimix_tbl.rds')
 
 is_duo_by_depth <- readRDS('03_data/is_duo_by_depth.rds') 
@@ -26,7 +28,7 @@ method_order <-
 ```{r fig_s1,  fig.height=5.5, fig.width=8}
 measures <- c(`F1-score`='f1_score', 
               Precision='precision', 
-              `Sensitivity (recall)`='recall', 
+              `Sensitivity / Recall`='recall', 
               Specificity = 'specificity')
 
 fig_s1<-
@@ -39,7 +41,7 @@ fig_s1<-
              y_name = measure),
     is_duo_by_mp %>% 
       filter(measure %in% measures) %>% 
-      mutate(x_name = 'Minor Percent') %>% 
+      mutate(x_name = 'Minor Strain Fraction (%)') %>% 
       rename(x_value = minor_percent,
              y_value = value,
              y_name = measure),
@@ -54,7 +56,7 @@ fig_s1<-
     method = factor(method, method_order),
     y_name = setNames(names(measures), measures)[y_name],
     y_name = factor(y_name, names(measures)),
-    x_name = factor(x_name, c('Coverage', 'Minor Percent', 'Distance Bin')),
+    x_name = factor(x_name, c('Coverage', 'Minor Strain Fraction (%)', 'Distance Bin')),
   ) %>% 
   rename(Tool = method) %>% 
   select(Tool, x_name, x_value, y_name, y_value) %>% 
@@ -77,6 +79,6 @@ fig_s1<-
                                 minor_breaks = NULL), 
              NULL))
 
-saveRDS(fig_s1$data, '10_data/fig_S1_data.rds')
+# saveRDS(fig_s1$data, '10_data/fig_S1_data.rds')
 fig_s1
 ```

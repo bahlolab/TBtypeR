@@ -31,7 +31,7 @@ fig_S2_panel_A <-
   xlim(0, 50)  +
   labs(y = 'Mixed Infection Count', x = 'Minor Strain Fraction (%)')
 
-saveRDS(fig_S2_panel_A$data, '09_data/fig_2A_data.rds')
+# saveRDS(fig_S2_panel_A$data, '09_data/fig_2A_data.rds')
 fig_S2_panel_A
 ```
 
