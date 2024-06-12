@@ -7,6 +7,8 @@ output: 'github_document'
 library(tidyverse)
 source('functions.R')
 ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+
+if (!dir.exists('04_data')) { dir.create('04_data') }
 ```
 
 * Run benchmarking pipeline 5 times on subset of 100 samples (50 mixed at 50%, 50 unmixed) with depth 60
@@ -103,7 +105,6 @@ read_trace <- function(nxf_trace_file) {
   ) %>%
   select(method, process, id, duration, realtime, percent_cpu, peak_rss, peak_vmem, rchar, wchar) %>%
   arrange(method, process, id)
-  # mutate(across(c(tool, process, id), as.factor)) %>%
 }
 
  
@@ -114,7 +115,7 @@ nxf_trace <-
       mutate(method = if_else(
         method == 'FastTBtypeNF',
         'FastTBtypeR',
-        str_c(method, ' (+TBT)'))),
+        str_c(method, ' (+BC)'))),
     list.files('04_data/benchmark_time', pattern = 'trace-default-', full.names = T) %>% 
       map_df(read_trace) %>% 
       mutate(method = if_else(
@@ -122,20 +123,18 @@ nxf_trace <-
         'TBtypeR',
         method))
   ) %>% 
-  filter(!is.na(method))
+  filter(!is.na(method)) %>% 
+  select(method, process, id, realtime, percent_cpu)
 
-saveRDS(nxf_trace, '04_data/nxf_trace.rds')
-  
+# saveRDS(nxf_trace, '04_data/nxf_trace.rds')
 ```
 * Summarise runtimes
 
-```{r, eval=FALSE}
-nxf_trace <- readRDS('04_data/nxf_trace.rds')
-
+```{r smry, eval=FALSE}
 runtime_smry <-
-  nxf_trace %>% 
+  readRDS('04_data/nxf_trace.rds') %>% 
   group_by(method, process, id) %>% 
-  summarise(across(c(realtime, duration, percent_cpu), median),
+  summarise(across(c(realtime, percent_cpu), median),
             .groups = 'drop') %>% 
   mutate(cpu_min = (percent_cpu * realtime / 100)/(60)) %>% 
   group_by(method) %>% 
@@ -145,7 +144,7 @@ saveRDS(runtime_smry, '04_data/runtime_smry.rds')
 ```
 
 
-```{r}
+```{r plot}
 readRDS('04_data/runtime_smry.rds') %>% 
   arrange(desc(cpu_min_per_sample)) %>% 
   mutate(method = as_factor(as.character(method))) %>% 

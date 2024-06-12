@@ -7,7 +7,9 @@ output: 'github_document'
 library(tidyverse)
 source('functions.R')
 ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
-in_silico_dataset <-  readRDS('02_data/in_silico_dataset.rds') 
+in_silico_dataset <-  readRDS('02_data/in_silico_dataset.rds')
+
+if (!dir.exists('03_data')) { dir.create('03_data') }
 ```
 
 * Run benchmarks
@@ -52,7 +54,7 @@ bench_res_raw <-
       mutate(method = if_else(
         method == 'FastTBtypeR',
         method,
-        str_c(method, ' (+TBT)')))
+        str_c(method, ' (+BC)')))
   ) %>% 
   mutate(
     method = str_replace(method, 'fastlin', 'Fastlin'),
@@ -156,7 +158,7 @@ is_duo_bench_metrics <-
             MAE = 100*MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  arrange(desc(nMCC)) %>% 
+  arrange(desc(MCC)) %>% 
   mutate(method = as_factor(method))
 
 saveRDS(is_duo_bench_metrics, '03_data/is_duo_bench_metrics.rds')
@@ -164,10 +166,10 @@ saveRDS(is_duo_bench_metrics, '03_data/is_duo_bench_metrics.rds')
 is_duo_bench_metrics %>% 
   mutate(`1-MAE` = (100-MAE)/100) %>% 
   select(-accuracy, -MAE) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, `1-MAE`),
+  pivot_longer(c(MCC, precision, recall, specificity, f1_score, `1-MAE`),
                names_to = 'measure') %>% 
   mutate(measure = factor(measure, 
-                          c('nMCC', 'f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
+                          c('MCC', 'f1_score', '1-MAE', 'specificity', 'precision', 'recall'))) %>% 
   group_by(measure) %>% 
   mutate(rank = rank(desc(value), ties.method = 'min')) %>% 
   ungroup() %>% 
@@ -200,12 +202,10 @@ bimix_tbl %>%
   scale_x_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
   scale_y_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
   theme(
-    # axis.title.y = element_blank(),
         axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
   coord_fixed() +
   facet_wrap(~label, nrow = 2) +
   ggtitle('Accuracy of minor strain percentages for in silico duos')
-
 ```
 
 ```{r by_depth}
@@ -216,7 +216,7 @@ is_duo_by_depth <-
             MAE = 100*MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
+  pivot_longer(c(MCC, precision, recall, specificity, f1_score, MAE, accuracy),
                names_to = 'measure')
 
 saveRDS(is_duo_by_depth, '03_data/is_duo_by_depth.rds')
@@ -225,9 +225,8 @@ is_duo_by_depth %>%
   mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
          measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
   mutate(measure = factor(measure, 
-                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+                          c('MCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
   ggplot(aes(depth, value, colour = method)) +
-  # ggplot(aes(depth, value, colour = method, lty = method)) +
   geom_line() +
   geom_point(aes(shape=method)) +
   theme(legend.position = 'bottom') +
@@ -235,12 +234,10 @@ is_duo_by_depth %>%
   scale_x_continuous(minor_breaks = NULL) +
   scale_y_continuous(minor_breaks = NULL) +
   scale_shape_discrete() +
-  # scale_shape_manual(values = c(8:9, 15:18)) +
   ylab('value') +
   ggtitle('In silico duo performance by depth')
 
 ```
-
 
 ```{r by_mp}
 is_duo_by_mp <-
@@ -251,7 +248,7 @@ is_duo_by_mp <-
             MAE = 100*MAE(minor_prop, minor_prop_pred),
             .groups = 'drop')  %>%
   unnest(measures) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
+  pivot_longer(c(MCC, precision, recall, specificity, f1_score, MAE, accuracy),
                names_to = 'measure')
 
 saveRDS(is_duo_by_mp, '03_data/is_duo_by_mp.rds')
@@ -260,15 +257,13 @@ is_duo_by_mp %>%
   mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
          measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
   mutate(measure = factor(measure, 
-                          c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy')))  %>% 
+                          c('MCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy')))  %>% 
   ggplot(aes(minor_percent, value, colour = method, shape=method)) +
   geom_line() + 
   geom_point(aes(shape = method)) +
-  theme(legend.position = 'bottom') +
   facet_wrap(~measure,  scales='free_y') +
   scale_x_continuous(minor_breaks = NULL) +
   scale_y_continuous(minor_breaks = NULL) +
-  # scale_shape_manual(values = c(8:9, 15:18)) +
   scale_x_continuous(trans = 'log2', breaks = breaks, minor_breaks = NULL) +
   ylab('value') +
   xlab('MSF') +
@@ -282,11 +277,15 @@ is_duo_by_dist <-
   bimix_tbl %>% 
   mutate(dist_bin = cume_dist(distance) %/% (1/5) + 1) %>% 
   group_by(method, dist_bin) %>%
-  summarise(measures = binary_measures(is_mixed, is_mixed_pred),
-            MAE = 100*MAE(minor_prop, minor_prop_pred),
-            .groups = 'drop')  %>%
+  summarise(
+    dist_bin_min = min(distance),
+    dist_bin_max = max(distance),
+    dist_bin_mean = mean(distance),
+    measures = binary_measures(is_mixed, is_mixed_pred),
+    MAE = 100*MAE(minor_prop, minor_prop_pred),
+    .groups = 'drop')  %>%
   unnest(measures) %>% 
-  pivot_longer(c(nMCC, precision, recall, specificity, f1_score, MAE, accuracy),
+  pivot_longer(c(MCC, precision, recall, specificity, f1_score, MAE, accuracy),
                names_to = 'measure') %>% 
   mutate(measure = if_else(measure == 'MAE', 'MAE', measure))
   
@@ -298,7 +297,7 @@ is_duo_by_dist %>%
          measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
   mutate(measure = factor(
     measure, 
-    c('nMCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+    c('MCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
   ggplot(aes(dist_bin, value, colour = method, shape=method)) +
   geom_line() +
   geom_point(aes(shape = method)) +
@@ -306,7 +305,6 @@ is_duo_by_dist %>%
   facet_wrap(~measure,  scales='free_y') +
   scale_x_continuous(minor_breaks = NULL) +
   scale_y_continuous(minor_breaks = NULL) +
-  # scale_shape_manual(values = c(8:9, 15:18)) +
   ylab('value') +
   xlab('SNP distance Bin') +
   ggtitle('In silico duo performance by SNP distance')
