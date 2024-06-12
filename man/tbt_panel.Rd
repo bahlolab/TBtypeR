@@ -5,7 +5,7 @@
 \alias{tbt_panel}
 \title{TBtypeR SNP phylotype panel.}
 \format{
-A data frame with 10,904 rows and 8 columns:
+A data frame with 10,903 rows and 8 columns:
 \describe{
   \item{chrom}{H37Rv chromosome}
   \item{pos}{H37Rv genomic position}

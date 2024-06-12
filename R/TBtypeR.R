@@ -1,12 +1,44 @@
-# TODO:
-  # Canned visualisations?
-  # set spike_in_p to min_mix_prop (intuitive)
 
+#' Identify and quantify Mycobacterium tuberculosis (MTB) phylotype mixtures from genomic data
+#'
+#'
 #' @export
 #' @importFrom rlang is_integer is_scalar_integerish is_bool is_scalar_character
 #' @importFrom magrittr set_colnames set_rownames
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
+#'
+#' @param gds A Genomic Data Structure (GDS) file. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
+#' @param vcf A Variant Call Format (VCF) file. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
+#' @param allele_counts Allele count matrix. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
+#' @param panel The phylogenetic SNP panel (barcode) to use. Default is \code{TBtypeR::tbt_panel}.
+#' @param max_phylotypes Maximum number of phylotypes to identify. Default is 5L.
+#' @param min_mix_prop Minimum proportion of a mixture required to return a result. Default is 0.005.
+#' @param min_median_depth Minimum median depth of coverage required to return calls. Default is 10L.
+#' @param min_depth_fold Exclude sites with coverage this many times below median depth. Default is 5.
+#' @param max_depth Round allele counts above this value down. Default is 200L.
+#' @param max_depth_fold Round allele counts this many times above median down. Default is 2.
+#' @param max_p_val_perm Maximum p-value for permutation test to consider a significant mixture. Default is 0.01.
+#' @param max_p_val_wsrst Maximum p-value for Wilcoxon signed-rank test to consider a significant mixture. Default is 0.01.
+#' @param reoptimise Logical, whether to reoptimise phylotype calls each iteration. Default is TRUE.
+#' @param min_sites Minimum number of sites required for a reliable mixture call. Default is 1000L.
+#' @param n_perm Number of permutations for permutation test. Default is 1000L.
+#' @param exclude_parent Logical, whether to exclude parent phylotypes. Default is TRUE.
+#' @param exclude_child Logical, whether to exclude child phylotypes. Default is TRUE.
+#' @param exclude_ancestor Logical, whether to exclude ancestor phylotypes. Default is TRUE.
+#' @param exclude_descendant Logical, whether to exclude descendant phylotypes. Default is FALSE.
+#' @param exclude_distance Maximum distance to exclude close relatives. Default is 10L.
+#' @param exclude_inner Logical, whether to exclude inner nodes in the phylogeny. Default is FALSE.
+#' @param error_rate Error rate for sequencing. Default is 0.005.
+#' @param verbose Logical, whether to print detailed messages during execution. Default is FALSE.
+#' @param seed Seed for random number generation. Default is 1L.
+#'
+#' @return A tibble containing identified phylotypes and their mixture proportions.
+#'
+#' @examples
+#' \dontrun{
+#' tbtype_result <- tbtype(gds = "example.gds", max_phylotypes = 3L, min_mix_prop = 0.01)
+#' }
 tbtype <- function(gds = NULL,
                    vcf = NULL,
                    allele_counts = NULL,
@@ -831,6 +863,24 @@ optimise_mix_and_error_rate <- function(data,
        model_curr = model_curr)
 }
 
+#' Filter MTB phylotype mixture results based on provided criteria
+#'
+#' @param tbtype_results results tibble obtained from the \code{tbtype} function.
+#' @param max_phylotypes Maximum number of phylotypes in a mixture to retain. Default is \code{Inf}.
+#' @param min_mix_prop Minimum proportion of a mixture to retain. Default is 0.01.
+#' @param max_p_val_perm Maximum p-value for permutation test to retain a phylotype. Default is 0.01.
+#' @param max_p_val_wsrst Maximum p-value for Wilcoxon signed-rank test to retain a phylotype. Default is 0.01.
+#' @param min_abs_diff Minimum absolute difference in model BAF to return. Default is 0.
+#'
+#' @return A filtered tibble of MTB phylotype mixtures.
+#' @examples
+#' \dontrun{
+#' # Example usage:
+#' tbtype_results <- tbtype(vcf = "example.vcf", max_phylotypes = 3L, min_mix_prop = 0.01)
+#' filtered_results <- filter_tbtype(tbtype_results,
+#'                                   max_phylotypes = 3,
+#'                                   min_mix_prop = 0.02)
+#' }
 #' @export
 #' @importFrom tidyr complete
 #' @importFrom purrr map_lgl
@@ -841,7 +891,6 @@ filter_tbtype <- function(tbtype_results,
                           max_p_val_perm = 0.01,
                           max_p_val_wsrst = 0.01,
                           min_abs_diff = 0) {
-  # TODO: check tbtype results
   assert_that(
     is.data.frame(tbtype_results),
     is_scalar_proportion(min_mix_prop),
