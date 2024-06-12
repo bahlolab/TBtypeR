@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE, results = "hold", message = FALSE, warning = 
 ```
 
 `TBtypeR` is an R package for accurate and sensitive quantification of mixtures of *M. tuberculosis* (MTB) strains from whole
-genome sequencing data. `TBtypeR` excels as detecting low-frequency mixed infections that other tools struggle to detect, maintaining a sensitivity above 85% for minor strain frequencies of 2.5% and 56% for minor strain frequencies of 1%. `TBtypeR` isimplemented as a standalone R package and as part of a end-to-end Nextflow pipeline, `TBtypeNF`.
+genome sequencing data. `TBtypeR` excels as detecting low-frequency mixed infections that other tools struggle to detect, maintaining a sensitivity above 85% for minor strain frequencies of 2.5% and 56% for minor strain frequencies of 1%. `TBtypeR` is implemented as a standalone R package and as part of a end-to-end Nextflow pipeline, `TBtypeNF`.
 
 ## The Nextflow Pipeline: TBtypeNF
 `TBtypeNF` is an end-to-end [Nextflow](https://www.nextflow.io/index.html) pipeline for `TBtypeR` that takes FASTQ  files as input and performs FASTQ preprocessing with [fastp](https://github.com/OpenGene/fastp), read alignment with [BWA-MEM](https://github.com/lh3/bwa), variant calling with [BCFtools](https://samtools.github.io/bcftools/bcftools.html), and quality control report generation using [SAMtools](https://www.htslib.org/) and [mosdepth](https://github.com/brentp/mosdepth). The output is an HTML report with detected MTBC strains and mixtures frequencies.
@@ -56,7 +56,7 @@ The easiest way to use `TBtypeR` is through the `TBtypeNF` pipeline. However, ad
 devtools::install_github("bahlolab/TBtypeR")
 ```
 
-Example usage of `TBtypeR:
+Example usage of `TBtypeR`:
 ```{r detect_mixtures}
 library(tidyverse)
 library(TBtypeR)

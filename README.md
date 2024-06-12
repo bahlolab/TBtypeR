@@ -6,7 +6,7 @@ mixtures of *M. tuberculosis* (MTB) strains from whole genome sequencing
 data. `TBtypeR` excels as detecting low-frequency mixed infections that
 other tools struggle to detect, maintaining a sensitivity above 85% for
 minor strain frequencies of 2.5% and 56% for minor strain frequencies of
-1%. `TBtypeR` isimplemented as a standalone R package and as part of a
+1%. `TBtypeR` is implemented as a standalone R package and as part of a
 end-to-end Nextflow pipeline, `TBtypeNF`.
 
 ## The Nextflow Pipeline: TBtypeNF
@@ -75,7 +75,7 @@ follows:
 devtools::install_github("bahlolab/TBtypeR")
 ```
 
-Example usage of \`TBtypeR:
+Example usage of `TBtypeR`:
 
 ``` r
 library(tidyverse)
