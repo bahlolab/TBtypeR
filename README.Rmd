@@ -1,17 +1,19 @@
 ---
-title: "TBtypeR"
 output: 'github_document'
 ---
+
+# TBtypeR <img src="misc/TBtypeR_hex_logo.png" align="right" height="138"/>
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, results = "hold", message = FALSE, warning = FALSE)
 ```
 
-`TBtypeR` is an R package that performs accurate and sensitive
-quantification of mixtures of *M. tuberculosis* (MTB) strains from whole
-genome sequencing (WGS) data. `TBtypeR` excels as detecting low-frequency mixed infections that other tools struggle to detect, maintaining a sensitivity of 85% down to minor strain frequencies of 2.5%. 
+`TBtypeR` is an R package for accurate and sensitive quantification of mixtures of *M. tuberculosis* (MTB) strains from whole
+genome sequencing data. `TBtypeR` excels as detecting low-frequency mixed infections that other tools struggle to detect, maintaining a sensitivity above 85% for minor strain frequencies of 2.5% and 56% for minor strain frequencies of 1%. `TBtypeR` isimplemented as a standalone R package and as part of a end-to-end Nextflow pipeline, `TBtypeNF`.
 
-## Running TBtypeNF
-`TBtypeNF` is an end-to-end [Nextflow](https://www.nextflow.io/index.html) pipeline for `TBtypeR` that takes FASTQ  files as input and performs FASTQ preprocessing with [fastp](https://github.com/OpenGene/fastp), read alignment with [BWA-MEM](https://github.com/lh3/bwa), variant calling with [BCFtools](https://samtools.github.io/bcftools/bcftools.html), and quality control (QC) report generation using [SAMtools](https://www.htslib.org/), [mosdepth](https://github.com/brentp/mosdepth). The output is an HTML report with detected MTBC strains and mixtures frequencies.
+## The Nextflow Pipeline: TBtypeNF
+`TBtypeNF` is an end-to-end [Nextflow](https://www.nextflow.io/index.html) pipeline for `TBtypeR` that takes FASTQ  files as input and performs FASTQ preprocessing with [fastp](https://github.com/OpenGene/fastp), read alignment with [BWA-MEM](https://github.com/lh3/bwa), variant calling with [BCFtools](https://samtools.github.io/bcftools/bcftools.html), and quality control report generation using [SAMtools](https://www.htslib.org/) and [mosdepth](https://github.com/brentp/mosdepth). The output is an HTML report with detected MTBC strains and mixtures frequencies.
 
 `TBtypeNF` requires a sample manifest to run, minimally a TSV file with column names "sample", "fastq1" and "fastq2" - see [example manifest](TBtypeNF/resources/lung_example_manifest.tsv).
 
@@ -19,7 +21,7 @@ genome sequencing (WGS) data. `TBtypeR` excels as detecting low-frequency mixed 
 * Nextflow (≥ 22.03.0)
 * Singularity (Apptainer) or Docker
 
-### Usage  
+### Usage Example  
 ```{bash, eval=FALSE}
 # download example manifest
 wget https://raw.githubusercontent.com/bahlolab/TBtypeR/main/TBtypeNF/resources/lung_example_manifest.tsv -O my_manifest.tsv
@@ -27,15 +29,35 @@ wget https://raw.githubusercontent.com/bahlolab/TBtypeR/main/TBtypeNF/resources/
 nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --manifest my_manifest.tsv
 ```
 
-## Using TBtypeR
-The recommended way to use `TBtypeR` is through the `TBtypeNF` pipeline. However, additional parameters and customisation is available by using the R package directly. `TBtypeR` can be installed with `devtools` as follows:
+
+```{bash, eval=FALSE}
+nextflow run bahlolab/TBtypeR/TBtypeNF/main.nf -r main -profile singularity --manifest my_manifest.tsv --fast
+```
+
+### TBtypeNF Parameters
+
+| Parameter | Description                             | Default Value  |
+|-----------|-----------------------------------------|----------------|
+| manifest  | Input sample manifest                   | null           |
+| id        | Run identifier, for naming output files | 'TBtypeNF-run' |
+| outdir    | Output files directory                  | 'output'       |
+| publish_bams | Save BAM files to output directory   | false          |
+| fast      | Run FastTBtypeNF workflow  | false          |
+| max_mix   | Maximum number of strains in a mixture to be detected | 3 |
+| min_mix_prop | Minimum mixture proportion to be detected | 0.005     |
+
+#### FastTBtypeNF
+A faster workflow which skips alignment and quality control reporting is implemented by using [Fastlin](https://github.com/rderelle/fastlin) to generate allele counts for use by TBtypeR. This is generally 10x faster to run and gives near identical results. To use this mode supply the parameter `--fast` on the command line, e.g.:
+
+
+## The R package: TBtypeR
+The easiest way to use `TBtypeR` is through the `TBtypeNF` pipeline. However, additional parameters and customisation is available by using the R package directly. `TBtypeR` can be installed with `devtools` as follows:
 ```{r, eval=FALSE}
 devtools::install_github("bahlolab/TBtypeR")
 ```
 
-Example usage of `TBtypeR` as follows:
+Example usage of `TBtypeR:
 ```{r detect_mixtures}
-library(SeqArray)
 library(tidyverse)
 library(TBtypeR)
 
@@ -43,17 +65,24 @@ library(TBtypeR)
 vcf_filename <- system.file('vcf/example.vcf.gz', package = 'TBtypeR')
 
 tbtype_result <- 
+  # generate TBtypeR results
   tbtype(vcf = vcf_filename) %>% 
+  # filter TBtypeR results
   filter_tbtype(max_phylotypes = 3) %>%
+  # unnest data so there is 1 row per identified Mtb strain in each sample
   unnest_mixtures()
 
 tbtype_result %>% 
+  select(sample_id, n_phy, mix_phylotype, mix_prop) %>% 
   knitr::kable()
 ```
-```{r visualise_result}
+
+```{r visualise_result, dpi=600}
 tbtype_result %>% 
   ggplot(aes(x = sample_id, y = mix_prop, fill = mix_phylotype)) +
   geom_col() +
-  coord_flip()
+  coord_flip() +
+  labs(x = 'Sample ID', y = 'Minor Strain Fraction (%)')
 ```
 
+Detailed usage guides for the `tbtype` and `filter_tbtype` functions are available in the package documentation by running `help(tbtype)` or `help(filter_tbtype)`.
