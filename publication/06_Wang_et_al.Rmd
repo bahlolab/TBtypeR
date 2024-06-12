@@ -3,14 +3,17 @@ title: "Wang et al Comparison"
 output: 'github_document'
 ---
 
-* See [Mixed infections in genotypic drug-resistant Mycobacterium tuberculosis](https://doi.org/10.1038/s41598-023-44341-x)
+* See [Mixed infections in genotypic drug-resistant Mycobacterium tuberculosis](https://doi.org/10.1038/wang-023-44341-x)
 
 ```{r setup}
 library(tidyverse)
 ref_fn <- '01_data/GCA_000195955.2_ASM19595v2_genomic.fna.gz'
+
+if (!dir.exists('06_data')) { dir.create('06_data') }
 ```
 
 ```{r save_wang_supp_1, eval=FALSE}
+# from https://www.nature.com/articles/s41598-023-44341-x
 read_csv('https://static-content.springer.com/esm/art%3A10.1038%2Fs41598-023-44341-x/MediaObjects/41598_2023_44341_MOESM1_ESM.csv') %>% 
   left_join(
     # Note: List of all strains detected as mixed by TBProfiler, provided by author's in private communication
@@ -23,25 +26,29 @@ read_csv('https://static-content.springer.com/esm/art%3A10.1038%2Fs41598-023-443
 ```
 
 ```{r get_subset, eval=FALSE}
-wang_supp_1 <- readRDS('06_data/wang_supp_1.rds')
+# wang_supp_1 <- readRDS('06_data/wang_supp_1.rds')
+# only run once to select 5000 samples at random
 # wang_supp_1_n5000 <- sample_n(wang_supp_1, 5000)
 # saveRDS(wang_supp_1_n5000, '06_data/wang_supp_1_n5000.rds')
+
+wang_supp_1_n5000 <- readRDS('06_data/wang_supp_1_n5000.rds')
 
 wang_supp_1_n5000 %>%
   pull(wgs_id) %>%
   write_lines('06_data/fetchngs/ids.csv')
-
 ```
 
 ```{bash run_fetch_ngs, eval=FALSE}
 cd 06_data/fetchngs/
-nextflow run nf-core/fetchngs --inputs ids.csv --outdir output --force-sratools-download
+nextflow run nf-core/fetchngs --input ids.csv --outdir output --download_method aspera
 ```
 
-```{r}
+```{r setup_tbtyper, eval=FALSE}
 wang_supp_1_n5000 <- readRDS('06_data/wang_supp_1_n5000.rds')
-ss <- read_csv('06_data/fetchngs/output/samplesheet/samplesheet.csv')
-# choose highest-depth run for samples with multiple runs
+
+ss <- 
+  read_csv('06_data/fetchngs/output/samplesheet/samplesheet.csv') %>% 
+  bind_rows(read_csv('06_data/fetchngs/output2/samplesheet/samplesheet.csv'))
 
 manifest <-
   bind_rows(
@@ -55,11 +62,9 @@ manifest <-
       slice(which.max(base_count))
   ) %>% 
   select(wgs_id, fastq_1, fastq_2) %>% 
-  mutate(across(starts_with('fastq'), ~ normalizePath(., mustWork = F))) %>% 
-  mutate(fastq_2 = if_else(basename(fastq_2) == 'NA', NA_character_, fastq_2))
-```
-
-```{r setup_tbtyper, eval=FALSE}
+  mutate(across(starts_with('fastq'), ~ normalizePath(str_c('./06_data/fetchngs/',.),  mustWork = F))) %>% 
+  mutate(fastq_2 = if_else(basename(fastq_2) == 'NA', NA_character_, fastq_2)) %>%
+  filter(file.exists(fastq_1))
 
 if (!dir.exists('06_data/tbtyper')) {
   dir.create('06_data/tbtyper')
@@ -68,6 +73,8 @@ if (!dir.exists('06_data/tbtyper')) {
 read_lines('benchmark_default.config')  %>% 
   str_replace('params.methods.*', 'params.methods = [\'FastTBtypeR\']\n') %>% 
   write_lines('06_data/tbtyper/nextflow.config')
+
+# set params.max_mix = 2
 
 # copy ref
 file.copy(ref_fn, '06_data/tbtyper/')
@@ -83,26 +90,32 @@ nextflow run ../../../TBtypeNF/main.nf
 ```
 
 ```{r save_results, eval=FALSE}
-res_s41598_subset_raw <- read_tsv('06_data/tbtyper/output/combined_results.tsv')
-saveRDS(res_s41598_subset_raw, '06_data/res_s41598_subset_raw.rds')
+res_wang_subset_raw <- read_tsv('06_data/tbtyper/output/combined_results.tsv')
+saveRDS(res_wang_subset_raw, '06_data/res_wang_subset_raw.rds')
+# use as Table S2
 ```
 
 
-```{r eval=FALSE}
-res_s41598_subset_raw <- readRDS('06_data/res_s41598_subset_raw.rds')
+```{r}
+res_wang_subset_raw <- readRDS('06_data/res_wang_subset_raw.rds')
 
-res_s41598_subset <-
-  res_s41598_subset_raw %>% 
+res_wang_subset <-
+  res_wang_subset_raw %>% 
+  mutate(proportion = replace_na(proportion, 1)) %>% 
+  arrange(sample, desc(proportion)) %>% 
+  filter(proportion >= 0.01) %>%
   group_by(sample) %>% 
-  summarise(minor_prop = sum(proportion[proportion!=max(proportion)])) %>% 
-  mutate(is_mixed = minor_prop > 0)
+  summarise(
+    minor_prop = sum(proportion[proportion!=max(proportion)]),
+    strains = str_c(strain, ' [', round(100*proportion, 1), '%]', collapse = '\n')) %>% 
+  mutate(is_mixed = minor_prop >0) %>% 
+  mutate(is_mixed = replace_na(is_mixed))
 
-s41598_panel_A_dat <- 
-  res_s41598_subset %>% 
+wang_panel_A_dat <- 
+  res_wang_subset %>% 
   select(sample, minor_prop, is_mixed) %>% 
   inner_join(
     wang_supp_1_n5000 %>% 
-      # mutate(is_mixed = str_detect(main_lineage, ';')) %>% 
       select(sample = wgs_id, is_mixed),
     by = 'sample',
     suffix = c('_TBtypeR', '_TBProfiler')
@@ -117,29 +130,15 @@ s41598_panel_A_dat <-
   rename(Tool = set) %>% 
   mutate(Tool = factor(Tool, c('TBtypeR only', 'Both')))
 
-saveRDS(s41598_panel_A_dat, '06_data/s41598_panel_A_dat.rds')
+saveRDS(wang_panel_A_dat, '06_data/wang_panel_A_dat.rds')
+
+# use in 09_Figure_2.Rmd
 ```
 
-
-```{r msf_histogram}
-
-s41598_panel_A_dat <- readRDS('06_data/s41598_panel_A_dat.rds')
-
-s41598_panel_A_dat %>% 
-  ggplot(aes(MSF, fill = Tool)) +
-  geom_histogram(binwidth = 1) +
-  geom_vline(
-    aes(xintercept = MSF),
-    data = s1_panel_A_dat %>% group_by(Tool) %>% summarise(MSF = median(MSF)),
-    lty = 2
-  ) +
-  xlim(0, 50)  +
-  labs(y = 'Count', x = 'MSF (%)')
-```
 
 ```{r stats}
 # binomial conf int.
-res_s41598_subset %>% 
+res_wang_subset %>% 
   count(is_mixed) %>% 
   mutate(p = 100 * (n / sum(n))) %>% 
   filter(is_mixed) %>% 
@@ -149,142 +148,110 @@ res_s41598_subset %>%
     upper = 100 * binom.test(n, 5000)$conf.int[2])
 
 # conunt below MSF % per tool
-s41598_panel_A_dat %>%
+wang_panel_A_dat %>%
   group_by(Tool) %>%
   count(MSF < 5) %>% 
   mutate(p = 100 * (n / sum(n)))
 ```
 
+```{r}
+read_csv('06_data/fetchngs/baf_samples/samplesheet/samplesheet.csv') %>% 
+  select(sample = run_accession, fastq1=fastq_1, fastq2=fastq_2) %>% 
+  mutate(across(starts_with('fastq'), ~ normalizePath(str_c('./06_data/fetchngs/', .)))) %>% 
+  write_tsv('06_data/tbtyper/baf_samples_manifest.tsv')
+```
+
 ```{r extract_BAF_subset, eval=FALSE}
-# baf_ids <-
-#   res_s41598_subset %>% 
-#   select(sample, minor_prop, is_mixed) %>% 
-#   inner_join(
-#     wang_supp_1_n5000 %>% 
-#       mutate(is_mixed = str_detect(main_lineage, ';')) %>% 
-#       select(sample = wgs_id, is_mixed),
-#     by = 'sample',
-#     suffix = c('_TBtypeR', '_TBProfiler')
-#   ) %>% 
-#   mutate(set = case_when(
-#     is_mixed_TBtypeR & is_mixed_TBProfiler ~ 'Both',
-#     is_mixed_TBtypeR                       ~ 'TBtypeR only',
-#     is_mixed_TBProfiler                    ~ 'TBProfiler only',
-#   )) %>% 
-#   filter(!is.na(set)) %>% 
-#   group_by(set) %>% 
-#   arrange(minor_prop) %>% 
-#   mutate(bin = 1 + (row_number()-1) %/% (n()/5)) %>%
-#   group_by(set, bin) %>% 
-#   (\(x) { set.seed(1); sample_n(x, 1) } ) %>% 
-#   ungroup()
+baf_ids <-
+  res_wang_subset %>%
+  select(sample, minor_prop, is_mixed, strains) %>%
+  inner_join(
+    wang_supp_1_n5000 %>%
+      mutate(is_mixed = str_detect(main_lineage, ';')) %>%
+      select(sample = wgs_id, is_mixed),
+    by = 'sample',
+    suffix = c('_TBtypeR', '_TBProfiler')
+  ) %>%
+  filter(!is.na(is_mixed_TBProfiler)) %>%
+  mutate(set = case_when(
+    is_mixed_TBtypeR & is_mixed_TBProfiler ~ 'Both',
+    is_mixed_TBtypeR                       ~ 'TBtypeR',
+    is_mixed_TBProfiler                    ~ 'TBProfiler',
+  )) %>%
+  mutate(freq = if_else(minor_prop < 0.05, 'below 5%', 'above 5%')) %>%
+  mutate(set =
+           str_c(set, '\n', freq) %>%
+           factor(c('Both\nabove 5%', 'TBtypeR\nabove 5%', 'TBtypeR\nbelow 5%'))) %>%
+  filter(!is.na(set)) %>%
+  group_by(set, freq) %>%
+  arrange(minor_prop) %>%
+  mutate(bin = 1 + (row_number()-1) %/% (n()/5)) %>%
+  arrange(sample) %>%
+  group_by(set, freq, bin) %>%
+  (\(x) { set.seed(42); sample_n(x, 1) } ) %>%
+  ungroup()
 
-# trace <- read_tsv('06_data/tbtyper/log.txt', col_names = c('name', 'dir'))
-# 
-# sm_baf <-
-#   trace %>% 
-#   filter(str_detect(name, 'FASTLIN')) %>% 
-#   filter(str_detect(name, str_c(baf_ids$sample, collapse = '|'))) %>% 
-#   mutate(sample = str_extract(name, '(?<=\\().+(?=\\))'),
-#          file = str_c(dir, '/', sample, '_fastlin.tsv.gz')) %>% 
-#   select(sample, file) %>% 
-#   mutate(ac = map2(sample, file, \(s, f) {
-#     ac <- TBtypeR:::fastlin_allele_counts(f, sample = s, panel = TBtypeR::tbt_panel)
-#     ref <- ac[,,'ref']
-#     alt <- ac[,,'alt']
-#     tibble(sample = s,
-#            variant = names(ref),
-#            ref = unname(ref),
-#            alt = unname(alt),
-#            baf = alt / (ref + alt))
-#   })) %>% 
-#   select(ac) %>% 
-#   unnest(ac)
+trace <- read_tsv('06_data/tbtyper/log.txt', col_names = c('name', 'dir'))
 
-# sm_baf_mod <-
-#   res_s41598_subset_raw %>% 
-#   select(sample, strain, proportion) %>% 
-#   semi_join(sm_baf, by = 'sample') %>% 
-#   inner_join(
-#     TBtypeR:::panel_to_geno(panel = TBtypeR::tbt_panel) %>% 
-#       as.data.frame() %>% 
-#       rownames_to_column('strain') %>% 
-#       as_tibble() %>% 
-#       pivot_longer(-strain, names_to = 'variant', values_to = 'genotype'),
-#     by = c('strain'),
-#     relationship = 'many-to-many'
-#   ) %>% 
-#   semi_join(sm_baf, by = c('sample', 'variant')) %>% 
-#   arrange(sample, variant, desc(proportion)) %>% 
-#   group_by(sample, variant) %>% 
-#   summarise(
-#     state = str_c(genotype, collapse = ''),
-#     exp_baf = sum(proportion * genotype),
-#     .groups = 'drop'
-#   ) %>% 
-#   inner_join(sm_baf, by = c('sample', 'variant'))
-  
-# s41598_panel_B_dat <-
-#   sm_baf_mod %>% 
-#   filter(sample %in% unique(sample)) %>% 
-#   group_by(sample) %>% 
-#   mutate(MSF = round(100 * sort(unique(exp_baf))[2], 1)) %>% 
-#   ungroup() %>% 
-#   left_join(
-#      select(subset, sample, set),
-#      by = 'sample') %>% 
-#   mutate(sample = str_c(
-#     sample, '\n',
-#     'MSF: ', format(MSF), '%\n', 
-#     'Tool: ', str_remove(set, ' only'))) %>% 
-#   arrange(desc(set), MSF, sample) %>% 
-#   mutate(sample = as_factor(sample),
-#          state = as.factor(state)) %>% 
-#   select(sample, state, exp_baf, baf)
-# 
-# saveRDS(s41598_panel_B_dat, '06_data/s41598_panel_B_dat.rds')
-```
+sm_baf <-
+  trace %>%
+  filter(str_detect(name, 'FASTLIN')) %>%
+  filter(str_detect(name, str_c(baf_ids$sample, collapse = '|'))) %>%
+  mutate(sample = str_extract(name, '(?<=\\().+(?=\\))'),
+         file = str_c(dir, '/', sample, '_fastlin.tsv.gz')) %>%
+  select(sample, file) %>%
+  mutate(ac = map2(sample, file, \(s, f) {
+    ac <- TBtypeR:::fastlin_allele_counts(f, sample = s, panel = TBtypeR::tbt_panel)
+    ref <- ac[,,'ref']
+    alt <- ac[,,'alt']
+    tibble(sample = s,
+           variant = names(ref),
+           ref = unname(ref),
+           alt = unname(alt),
+           baf = alt / (ref + alt))
+  })) %>%
+  select(ac) %>%
+  unnest(ac)
 
-
-```{r baf_plots}
-
-s41598_panel_B_dat <- readRDS('06_data/s41598_panel_B_dat.rds')
-
-s41598_panel_B_dat_smry <-
-  s41598_panel_B_dat %>% 
-  group_by(sample, state, exp_baf) %>% 
+sm_baf_mod <-
+  res_wang_subset_raw %>%
+  select(sample, strain, proportion) %>%
+  semi_join(sm_baf, by = 'sample') %>%
+  inner_join(
+    TBtypeR:::panel_to_geno(panel = TBtypeR::tbt_panel) %>%
+      as.data.frame() %>%
+      rownames_to_column('strain') %>%
+      as_tibble() %>%
+      pivot_longer(-strain, names_to = 'variant', values_to = 'genotype'),
+    by = c('strain'),
+    relationship = 'many-to-many'
+  ) %>%
+  semi_join(sm_baf, by = c('sample', 'variant')) %>%
+  arrange(sample, variant, desc(proportion)) %>%
+  group_by(sample, variant) %>%
   summarise(
-    baf = median(baf),
+    state = str_c(genotype, collapse = ''),
+    exp_baf = sum(proportion * genotype),
     .groups = 'drop'
-  )
+  ) %>%
+  inner_join(sm_baf, by = c('sample', 'variant'))
 
-s41598_panel_B_dat %>% 
-  ggplot(aes(state, baf)) +
-  geom_jitter(
-    height = 0, 
-    size = 0.15, 
-    col = 'orchid'
-  ) +
-  geom_hline(
-    data = s41598_panel_B_dat_smry,
-    aes(yintercept = exp_baf),
-    col = 'black',
-    alpha = 0.5
-  ) +
-  geom_point(
-    data= s41598_panel_B_dat_smry,
-    col = 'black',
-    shape = 3,
-    size = 1.5,
-    stroke = 1,
-    alpha = 0.75
-  ) +
-  scale_y_continuous(
-    trans = scales::asn_trans(),
-    limits = c(0,1),
-    breaks = c(seq(0.1, 0.9, by = 0.2))
-  ) +
-  facet_wrap(~sample, nrow = 2) +
-  labs(y = 'BAF', x = 'Genotype')
+wang_panel_B_dat <-
+  sm_baf_mod %>%
+  left_join(
+     select(baf_ids, sample, set, strains, bin),
+     by = 'sample') %>%
+  mutate(sample = str_c(sample, '\n', strains)) %>%
+  arrange(desc(set), bin, sample) %>%
+  mutate(sample = as_factor(sample),
+         state = as.factor(state)) %>%
+  select(sample, set, state, exp_baf, baf)
+
+saveRDS(wang_panel_B_dat, '06_data/wang_panel_B_dat.rds')
+
+# use in 09_Figure_2.Rmd
 ```
+
+
+
 
