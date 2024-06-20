@@ -9,21 +9,32 @@ minor strain frequencies of 2.5% and 56% for minor strain frequencies of
 1%. `TBtypeR` is implemented as a standalone R package and as part of a
 end-to-end Nextflow pipeline, `TBtypeNF`.
 
+## Performance
+
+Extensive benchmarking of TBtypeR against available tools for MTB
+mixture detection is detailed in our [preprint on
+MedRxiv](https://doi.org/10.1101/2024.06.12.24308870). TBtypeR has the
+highest accuracy in prediction of minor strain fractions, with other
+tools unable to accurately quantify mixtures at below 5% minor strain
+fraction (see below).
+<img src="publication/08_data/fig1B.png" align="center" height="300"/>
+
 ## The Nextflow Pipeline: TBtypeNF
 
-`TBtypeNF` is an end-to-end
-[Nextflow](https://www.nextflow.io/index.html) pipeline for `TBtypeR`
-that takes FASTQ files as input and performs FASTQ preprocessing with
-[fastp](https://github.com/OpenGene/fastp), read alignment with
-[BWA-MEM](https://github.com/lh3/bwa), variant calling with
-[BCFtools](https://samtools.github.io/bcftools/bcftools.html), and
+`TBtypeNF` is a [Nextflow](https://www.nextflow.io/index.html) pipeline
+for `TBtypeR` that takes FASTQ files as input and performs FASTQ
+preprocessing with [fastp](https://github.com/OpenGene/fastp), read
+alignment with [BWA-MEM](https://github.com/lh3/bwa), variant calling
+with [BCFtools](https://samtools.github.io/bcftools/bcftools.html), and
 quality control report generation using
 [SAMtools](https://www.htslib.org/) and
-[mosdepth](https://github.com/brentp/mosdepth). The output is an HTML
-report with detected MTBC strains and mixtures frequencies.
+[mosdepth](https://github.com/brentp/mosdepth). Variant calls from
+BCFtools are then passed to TBtypeR to identify MTBC lineages and
+mixtures. The output is an HTML report with detected MTBC strains and
+mixtures frequencies.
 
-`TBtypeNF` requires a sample manifest to run, minimally a TSV file with
-column names “sample”, “fastq1” and “fastq2” - see [example
+`TBtypeNF` requires a sample manifest in TSV format with column names
+“sample”, “fastq1” and “fastq2” - see [example
 manifest](TBtypeNF/resources/lung_example_manifest.tsv).
 
 ### Requirements
@@ -105,12 +116,19 @@ tbtype_result %>%
 | SRR13312533 |     2 | 4.3.3         |   0.9192 |
 | SRR13312533 |     2 | 4.2.1         |   0.0808 |
 
+Visualise mixtures:
+
 ``` r
 tbtype_result %>% 
-  ggplot(aes(x = sample_id, y = mix_prop, fill = mix_phylotype)) +
+  ggplot(aes(x = sample_id,
+             y = mix_prop,
+             fill = mix_phylotype)) +
   geom_col() +
   coord_flip() +
-  labs(x = 'Sample ID', y = 'Minor Strain Fraction (%)')
+  labs(x = 'Sample ID',
+       y = 'Minor Strain Fraction (%)', 
+       fill = 'Sublineage') +
+  theme(text = element_text(size = 6))
 ```
 
 ![](README_files/figure-gfm/visualise_result-1.png)<!-- -->
@@ -118,3 +136,12 @@ tbtype_result %>%
 Detailed usage guides for the `tbtype` and `filter_tbtype` functions are
 available in the package documentation by running `help(tbtype)` or
 `help(filter_tbtype)`.
+
+## Citation
+
+TBtypeR is published as a preprint on MedRxiv:
+
+- [Munro, J. E., Coussens, A. K., & Bahlo, M. (2024). TBtypeR: Sensitive
+  detection and sublineage classification of low-frequency Mycobacterium
+  tuberculosis complex mixed infections. *medRxiv*,
+  2024-06](https://doi.org/10.1101/2024.06.12.24308870)

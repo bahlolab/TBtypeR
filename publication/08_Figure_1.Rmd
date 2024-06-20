@@ -136,6 +136,10 @@ panel_B <-
 
 # saveRDS(panel_B$data, '08_data/fig_1B_data.rds')
 panel_B
+
+ggsave(plot = panel_B + theme(text = element_text(size=10), legend.position = 'bottom'),
+       filename = '08_data/fig1B.png', 
+       width = 7, height = 2.5)
 ```
 
 ```{r panel_C}
