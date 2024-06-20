@@ -4,10 +4,10 @@
 `TBtypeR` is an R package for accurate and sensitive quantification of
 mixtures of *M. tuberculosis* (MTB) strains from whole genome sequencing
 data. `TBtypeR` excels as detecting low-frequency mixed infections that
-other tools struggle to detect, maintaining a sensitivity above 85% for
-minor strain frequencies of 2.5% and 56% for minor strain frequencies of
-1%. `TBtypeR` is implemented as a standalone R package and as part of a
-end-to-end Nextflow pipeline, `TBtypeNF`.
+other tools struggle to detect, maintaining a sensitivity of ~85% for
+minor strain frequencies of 2.5%, and ~55% for minor strain frequencies
+of 1%. `TBtypeR` is implemented as a standalone R package and as part of
+a end-to-end Nextflow pipeline, `TBtypeNF`.
 
 ## Performance
 
@@ -15,8 +15,7 @@ Extensive benchmarking of TBtypeR against available tools for MTB
 mixture detection is detailed in our [preprint on
 MedRxiv](https://doi.org/10.1101/2024.06.12.24308870). TBtypeR has the
 highest accuracy in prediction of minor strain fractions, with other
-tools unable to accurately quantify mixtures at below 5% minor strain
-fraction (see below).
+tools unable to accurately detect or quantify mixtures below 5%:
 <img src="publication/08_data/fig1B.png" align="center" height="300"/>
 
 ## The Nextflow Pipeline: TBtypeNF
