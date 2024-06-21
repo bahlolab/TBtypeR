@@ -16,7 +16,7 @@ mixture detection is detailed in our [preprint on
 MedRxiv](https://doi.org/10.1101/2024.06.12.24308870). TBtypeR has the
 highest accuracy in prediction of minor strain fractions, with other
 tools unable to accurately detect or quantify mixtures below 5%:
-<img src="publication/08_data/fig1B.png" align="center" height="300"/>
+<img src="publication/08_data/fig1B.png" align="center"/>
 
 ## The Nextflow Pipeline: TBtypeNF
 
