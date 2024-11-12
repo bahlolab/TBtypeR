@@ -52,7 +52,7 @@ workflow TBtypeNF {
         | branch { 
             paired: it.type == 'paired'
             single: it.type == 'single' 
-            bam:    it.type == 'bam' 
+            bam:    it.type == 'bam'
           }
 
     fastp_json = Channel.fromList([])
@@ -118,6 +118,7 @@ workflow TBtypeNF {
     if (params.multiqc) {
         bams \
             | combine(regions_ch) \
+            | combine(ref_ch) \
             | MOSDEPTH \
             | combine(SAMTOOLS_STATS(bams), by:0) \
             | join(fastp_json, by:0, remainder:true) \

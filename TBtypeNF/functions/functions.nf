@@ -20,6 +20,11 @@ def read_manifest(Path file) {
                     [type: 'bam', sample: it.sample, read: 'bam', file: it.bam],
                     [type: 'bam', sample: it.sample, read: 'bai', file: "${it.bam}.bai" ]
                 ]
+            } else if (it.cram) {
+                [
+                    [type: 'bam', sample: it.sample, read: 'bam', file: it.cram],
+                    [type: 'bam', sample: it.sample, read: 'bai', file: "${it.cram}.crai" ]
+                ]
             } else {
                 [
                     [type: 'error', sample: it.sample]
