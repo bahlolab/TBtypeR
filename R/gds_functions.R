@@ -163,9 +163,35 @@ is_gds <- function(x) {
   inherits(x, "SeqVarGDSClass")
 }
 
+
 is_open_gds <- function(x) {
   is_gds(x) && !identical(x$ptr, new("externalptr"))
 }
+
+check_valid_gds <- function(gds, filename = NULL) {
+
+  fn <- `if`(is.null(filename), gds$filename, filename)
+
+  sample_id <- tryCatch(seqGetData(gds, 'sample.id'), error = function(e) NULL)
+  if (is.null(sample_id) | length(sample_id) == 0) {
+    stop("No samples present in VCF/GDS file \"", fn, "\"")
+  }
+
+  ad <- tryCatch(seqGetData(gds, "annotation/format/AD")$data, error = function(e) NULL)
+  if (is.null(ad)) {
+    stop(
+      "Missing required VCF format field \"AD\" (Allelic Depth) from \"", fn, "\". ",
+      "It is recommended to create VCF with BCFtools or TBtypeNF pipeline."
+    )
+  }
+  if (!( is.matrix(ad) & is.integer(ad))) {
+    stop(
+      "VCF format field \"AD\" has incorrect format or data type. " ,
+      "It is recommended to create VCF with BCFtools or TBtypeNF pipeline."
+    )
+  }
+}
+
 
 #' @export
 #' @importFrom SeqArray seqGetData seqSetFilter seqClose seqOpen

@@ -68,8 +68,6 @@ tbt_res <-
   ) %>%
   TBtypeR::unnest_mixtures()
 
-saveRDS(tbt_res, str_c(opts$output, ".tbt_res.rds"))
-
 tbt_res %>%
   bind_rows(
     tibble( 
@@ -100,6 +98,8 @@ if (!is.null(opts$dr_panel)) {
       dr_panel = dr_panel
     )
 }
+
+saveRDS(tbt_res, str_c(opts$output, ".tbt_res.rds"))
 
 if (!opts$no_report) {
   TBtypeR::batch_report(

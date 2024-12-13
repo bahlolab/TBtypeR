@@ -82,6 +82,9 @@ tbtype <- function(gds = NULL,
 
   if (is_scalar_character(vcf)) {
     gds <- vcf_to_gds(vcf)
+    check_valid_gds(gds, filename = vcf)
+  } else {
+    check_valid_gds(gds)
   }
 
   phylo <- panel_to_phylo(panel)
