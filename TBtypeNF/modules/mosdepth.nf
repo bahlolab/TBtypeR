@@ -7,19 +7,20 @@ process MOSDEPTH {
     tag { sm }
 
     input:
-    tuple val(sm), path(bam), path(bai), path(bed)
+    tuple val(sm), path(bam), path(bai), path(bed), path(ref), path(ref_idx)
 
     output:
     tuple val(sm), path("${sm}.mosdepth.*")
 
     script:
+    //TODO - check non-crams unaffected
     if (bed.name == 'NO_REGIONS')
         """
-        mosdepth $sm $bam --threads ${task.cpus} --fast-mode --no-per-base --mapq 1
+        mosdepth $sm $bam --threads ${task.cpus} --fast-mode --no-per-base --mapq 1 --fasta $ref
         """
     else
         """
-        mosdepth $sm $bam --by $bed --threads ${task.cpus} --fast-mode --no-per-base --mapq 1
+        mosdepth $sm $bam --by $bed --threads ${task.cpus} --fast-mode --no-per-base --mapq 1 --fasta $ref
         rm ${sm}.regions.bed.gz*
         """
 }
