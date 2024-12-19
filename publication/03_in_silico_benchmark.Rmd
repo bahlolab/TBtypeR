@@ -208,6 +208,45 @@ bimix_tbl %>%
   ggtitle('Accuracy of minor strain percentages for in silico duos')
 ```
 
+
+```{r depth_vs_mp}
+is_duo_by_depth_and_mp <-
+  bimix_tbl %>% 
+  mutate(minor_percent = mpg * 100) %>% 
+  group_by(method, depth, minor_percent) %>%
+  summarise(n = n(),
+            measures = binary_measures(is_mixed, is_mixed_pred),
+            MAE = 100*MAE(minor_prop, minor_prop_pred),
+            .groups = 'drop')  %>%
+  unnest(measures) %>% 
+  pivot_longer(c(MCC, precision, recall, specificity, f1_score, MAE, accuracy),
+               names_to = 'measure')
+
+saveRDS(is_duo_by_depth_and_mp, '03_data/is_duo_by_depth_and_mp.rds')
+
+is_duo_by_depth_and_mp %>% 
+  mutate(
+    depth = str_c(depth, 'x Coverage') %>% 
+      factor(levels = str_c(sort(unique(is_duo_by_depth_and_mp$depth)), 'x Coverage'))
+  ) %>% 
+  mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
+         measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('MCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+  filter(measure == 'MCC') %>% 
+  filter(!str_detect(method, '\\(')) %>% 
+  filter(!str_detect(method, 'FastT')) %>% 
+  ggplot(aes(minor_percent, value, colour = method, shape=method)) +
+  geom_line() + 
+  geom_point(aes(shape = method)) +
+  facet_wrap(~depth,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  scale_x_continuous(trans = 'log2', breaks = c(1, 2.5, 5, 10, 25, 50), minor_breaks = NULL) +
+  ylab('MCC') +
+  xlab('MSF')
+```
+
 ```{r by_depth}
 is_duo_by_depth <-
   bimix_tbl %>% 

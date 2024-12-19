@@ -1,0 +1,51 @@
+---
+title: "Fig S1"
+output: 'github_document'
+---
+
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+if (!dir.exists('12_data')) { dir.create('12_data') }
+
+is_duo_by_depth_and_mp <- readRDS('03_data/is_duo_by_depth_and_mp.rds')
+
+table_1 <- readRDS('07_data/table_1.rds')
+
+method_order <- 
+  table_1 %>%
+  pull(method) %>% 
+  discard(str_detect, '\\(') %>% 
+  discard(str_detect, 'FastTB')
+```
+
+```{r fig_s2,  fig.height=5.5, fig.width=8}
+fig_s2 <- 
+  is_duo_by_depth_and_mp %>% 
+  filter(method %in% method_order) %>%
+  mutate(
+    method = factor(method, method_order),
+    depth = str_c(depth, 'x Coverage') %>% 
+      factor(levels = str_c(sort(unique(is_duo_by_depth_and_mp$depth)), 'x Coverage'))
+  ) %>% 
+  mutate(value   = if_else(measure == 'MAE', (100-value)/100, value),
+         measure = if_else(measure == 'MAE', '1-MAE', measure)) %>% 
+  mutate(measure = factor(measure, 
+                          c('MCC','f1_score', '1-MAE', 'specificity', 'precision', 'recall', 'accuracy'))) %>% 
+  filter(measure == 'MCC') %>% 
+  filter(!str_detect(method, '\\(')) %>% 
+  filter(!str_detect(method, 'FastT')) %>% 
+  ggplot(aes(minor_percent, value, colour = method, shape=method)) +
+  geom_line() + 
+  geom_point(aes(shape = method)) +
+  facet_wrap(~depth,  scales='free_y') +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  scale_x_continuous(trans = 'log2', breaks = c(1, 2.5, 5, 10, 25, 50), minor_breaks = NULL) +
+  ylab('MCC') +
+  xlab('Minor Strain Fraction (%)')
+
+saveRDS(fig_s2$data, '12_data/fig_S2_data.rds')
+fig_s2
+```
