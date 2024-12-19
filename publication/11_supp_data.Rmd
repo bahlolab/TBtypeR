@@ -14,6 +14,7 @@ fig_1C_data <- readRDS('08_data/fig_1C_data.rds')
 
 fig_2A_data <- readRDS('09_data/fig_2A_data.rds')
 fig_S1_data <- readRDS('10_data/fig_S1_data.rds')
+fig_S2_data <- readRDS('12_data/fig_S2_data.rds')
 ```
 
 ```{r table_s1}
@@ -39,7 +40,8 @@ writexl::write_xlsx(
     `Figure 1B Data` = fig_1B_data,
     `Figure 1C Data` = fig_1C_data,
     `Figure 2A Data` = fig_2A_data,
-    `Figure S1 Data` = fig_S1_data
+    `Figure S1 Data` = fig_S1_data,
+    `Figure S2 Data` = fig_S2_data
     ),
   '11_data/TBtypeR_supplementary_data.xlsx'
 )
