@@ -27,8 +27,14 @@ process GET_TARGETS {
             dr_panel        = $dr_panel_,
             calling_regions = $regions_,
             output_dir      = '.')
+        
+        panel_sites <- TBtypeR::read_panel('$panel')
+        try(panel_sites <- dplyr::bind_rows(panel_sites, TBtypeR::read_panel($dr_panel_, phylo = FALSE)))
+        panel_sites <- dplyr::filter(panel_sites, nchar(ref) == 1, nchar(alt) == 1)
+        panel_sites <- dplyr::select(panel_sites, chrom, pos)
+        panel_sites <- dplyr::arrange(panel_sites, chrom, pos)
         readr::write_tsv(
-            dplyr::select(TBtypeR::read_panel('$panel'), chrom, pos),
+            dplyr::distinct(panel_sites),
             'panel_sites.tsv.gz',
             col_names = F)
         "

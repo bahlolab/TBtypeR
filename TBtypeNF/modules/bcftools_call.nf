@@ -8,7 +8,7 @@ process BCFTOOLS_CALL {
 
     input:
     tuple val(sm), path(bam), path(bai), path(ref), path(ref_files),
-          path(snp_targets), path(indel_regions), path(panel_sites)
+          path(snp_targets), path(indel_regions)
 
     output:
     path alt_sites,                                emit: 'sites'
