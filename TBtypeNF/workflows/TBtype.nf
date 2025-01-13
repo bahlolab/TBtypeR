@@ -89,7 +89,6 @@ workflow TBtypeNF {
         | combine(ref_ch) \
         | combine(targets.snp) \
         | combine(targets_indel) \
-        | combine(targets.panel) \
         | BCFTOOLS_CALL
 
     sites = calls.sites \
