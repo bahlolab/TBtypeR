@@ -1,6 +1,6 @@
 Package: TBtypeR
 Title: Mycobacterium Tuberculosis Phylotyping and Mixture Detection from WGS SNP data
-Version: 24.06.0
+Version: 25.01.0
 Authors@R: 
     person(given = "Jacob",
            family = "Munro",
