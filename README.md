@@ -100,9 +100,9 @@ may be compatible if the following conditions are met:
 1) **Reference Genome**: TBtypeR expects variants to be called angainst
 the [H37Rv reference
 genome]('https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/195/955/GCA_000195955.2_ASM19595v2/GCA_000195955.2_ASM19595v2_genomic.fna.gz').
-The chromosome must be named either “AL123456.3” or “NC_000962.3”. 2)
-**AD Format Field**: TBtypeR requires the allelic depth to be stored in
-the VCF format field AD, consistent with BCFtools call output.
+The chromosome must be named either “AL123456.3” or “NC_000962.3”.  
+2) **AD Format Field**: TBtypeR requires the allelic depth to be stored
+in the VCF format field AD, consistent with BCFtools call output.
 
 Example usage of `TBtypeR`:
 
