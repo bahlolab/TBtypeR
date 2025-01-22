@@ -38,7 +38,6 @@ min_mix_prop <- as.numeric(opts$min_mix_prop)
 options(future.globals.maxSize = Inf)
 plan(multicore, workers = threads)
 
-gds <- seqOpen(opts$gds)
 panel <- TBtypeR::read_panel(opts$panel)
 
 sample_meta <- NULL
@@ -50,7 +49,7 @@ if (!is.null(opts$sample_meta)) {
 }
 
 args <- list(
-  gds = gds,
+  gds = opts$gds,
   panel = panel,
   max_phylotypes = max_mix,
   min_mix_prop = min_mix_prop
@@ -87,6 +86,7 @@ tbt_res %>%
   ) %>%
   write_csv(str_c(opts$output, ".tbt_calls.csv"))
 
+gds <- seqOpen(opts$gds)
 snp_dist <- TBtypeR::snp_distance(gds, regions = NULL)
 
 if (!is.null(opts$dr_panel)) {
