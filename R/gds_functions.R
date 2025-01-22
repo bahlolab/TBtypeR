@@ -9,7 +9,9 @@
 get_allele_counts <- function(gds, panel,
                               as_tibble = FALSE,
                               verbose = FALSE,
-                              max_ext_freq = 0.25) {
+                              max_ext_freq = 0.25,
+                              rename_chrom = character()) {
+
 
   # check_args
   assert_that(
@@ -17,7 +19,9 @@ get_allele_counts <- function(gds, panel,
     is.data.frame(panel),
     all(c("chrom", "pos", "ref", "alt") %in% colnames(panel)),
     is_bool(verbose),
-    is_scalar_double(max_ext_freq) && max_ext_freq >= 0 && max_ext_freq <= 1
+    is_scalar_double(max_ext_freq) && max_ext_freq >= 0 && max_ext_freq <= 1,
+    is.character(rename_chrom),
+    length(rename_chrom) == 0 | !is.null(names(rename_chrom))
   )
   # ensure gds is open
   if (!is_open_gds(gds)) {
@@ -30,8 +34,19 @@ get_allele_counts <- function(gds, panel,
   # find matching sites in gds
   sam_id <- seqGetData(gds, "sample.id")
   var_id <- seqGetData(gds, "variant.id")
-  gr <- with(panel, GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref))))
+  gr <-
+    panel %>%
+    select(chrom, pos, ref) %>%
+    mutate(chrom = map(chrom, function(x) { c(x, names(rename_chrom)[rename_chrom == x])})) %>%
+    unnest(chrom) %>%
+    arrange_all() %>%
+    with(., GenomicRanges::GRanges(chrom, IRanges::IRanges(start = pos, width = nchar(ref))))
+
   seqSetFilter(gds, gr, verbose = verbose)
+  if (length(seqGetData(gds, "variant.id")) == 0) {
+    stop("No matching panel variants found")
+  }
+
   panel_var <- panel_with_vid(panel) %>% select(vid, chrom, pos, ref, alt)
 
   gds_panel_var <-
@@ -44,6 +59,13 @@ get_allele_counts <- function(gds, panel,
     mutate(alt_index = if_else(is.na(alt), NA_integer_, cumsum(!is.na(alt)))) %>%
     ungroup() %>%
     rename(chrom = chr) %>%
+    mutate(chrom =
+             replace(
+               chrom,
+               chrom %in% names(rename_chrom),
+               rename_chrom[chrom[chrom %in% names(rename_chrom)]]
+             )
+    ) %>%
     semi_join(panel_var, by = c("chrom", "pos", "ref")) %>%
     (function(x) {
       bind_rows(
@@ -116,6 +138,7 @@ get_allele_counts <- function(gds, panel,
   AD <- seqGetData(gds, "annotation/format/AD")$data
   # reset gds filter
   seqSetFilter(gds, variant.id = var_id, verbose = verbose)
+
   ref_ac <- AD[, var_index$ref, drop = F]
   alt_ac <- AD[, var_index$alt, drop = F]
   alt_ac[is.na(alt_ac)] <- 0L
@@ -171,6 +194,14 @@ is_open_gds <- function(x) {
 check_valid_gds <- function(gds, filename = NULL) {
 
   fn <- `if`(is.null(filename), gds$filename, filename)
+
+  if (!is_open_gds(gds)) {
+    warning("Opening closed gds file")
+    gds <- seqOpen(gds$filename, allow.duplicate = T)
+    on.exit({
+      seqClose(gds)
+    })
+  }
 
   sample_id <- tryCatch(seqGetData(gds, 'sample.id'), error = function(e) NULL)
   if (is.null(sample_id) | length(sample_id) == 0) {

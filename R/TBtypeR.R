@@ -8,8 +8,8 @@
 #' @importFrom assertthat assert_that
 #' @importFrom SeqArray seqOpen
 #'
-#' @param gds A Genomic Data Structure (GDS) file. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
-#' @param vcf A Variant Call Format (VCF) file. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
+#' @param gds A Genomic Data Structure (GDS) file path. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
+#' @param vcf A Variant Call Format (VCF) file path. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
 #' @param allele_counts Allele count matrix. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.
 #' @param panel The phylogenetic SNP panel (barcode) to use. Default is \code{TBtypeR::tbt_panel}.
 #' @param max_phylotypes Maximum number of phylotypes to identify. Default is 5L.
@@ -32,6 +32,7 @@
 #' @param error_rate Error rate for sequencing. Default is 0.005.
 #' @param verbose Logical, whether to print detailed messages during execution. Default is FALSE.
 #' @param seed Seed for random number generation. Default is 1L.
+#' @param rename_chrom Named character vector providing name substitutions for chromosomes, in the format of c("from_name" = "to_name").
 #'
 #' @return A tibble containing identified phylotypes and their mixture proportions.
 #'
@@ -62,11 +63,12 @@ tbtype <- function(gds = NULL,
                    exclude_inner = FALSE,
                    error_rate = 0.005,
                    verbose = FALSE,
-                   seed = 1L) {
+                   seed = 1L,
+                   rename_chrom = c("NC_000962.3" = "AL123456.3")) {
 
   # check args
   assert_that(
-    is_gds(gds) || !is.null(allele_counts) || is_scalar_character(vcf),
+    is_scalar_character(gds) || !is.null(allele_counts) || is_scalar_character(vcf),
     is_scalar_integerish(max_phylotypes) && max_phylotypes > 0,
     is_scalar_integerish(min_median_depth) && min_median_depth > 0,
     is_scalar_double(min_depth_fold) && min_depth_fold >= 1,
@@ -84,15 +86,20 @@ tbtype <- function(gds = NULL,
     gds <- vcf_to_gds(vcf)
     check_valid_gds(gds, filename = vcf)
   } else {
+    gds <- seqOpen(gds)
     check_valid_gds(gds)
   }
+  on.exit({
+    seqClose(gds)
+  })
 
   phylo <- panel_to_phylo(panel)
   geno <- panel_to_geno(panel)
   if (is.null(allele_counts)) {
     allele_counts <- get_allele_counts(gds,
                                        panel = panel,
-                                       verbose = verbose
+                                       verbose = verbose,
+                                       rename_chrom = rename_chrom
     )
   }
 

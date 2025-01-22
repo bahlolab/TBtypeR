@@ -28,13 +28,14 @@ tbtype(
   exclude_inner = FALSE,
   error_rate = 0.005,
   verbose = FALSE,
-  seed = 1L
+  seed = 1L,
+  rename_chrom = c(NC_000962.3 = "AL123456.3")
 )
 }
 \arguments{
-\item{gds}{A Genomic Data Structure (GDS) file. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.}
+\item{gds}{A Genomic Data Structure (GDS) file path. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.}
 
-\item{vcf}{A Variant Call Format (VCF) file. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.}
+\item{vcf}{A Variant Call Format (VCF) file path. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.}
 
 \item{allele_counts}{Allele count matrix. Default is NULL. One of \code{gds}, \code{vcf}, or \code{allele_counts} must be supplied.}
 
@@ -79,6 +80,8 @@ tbtype(
 \item{verbose}{Logical, whether to print detailed messages during execution. Default is FALSE.}
 
 \item{seed}{Seed for random number generation. Default is 1L.}
+
+\item{rename_chrom}{Named character vector providing name substitutions for chromosomes, in the format of c("from_name" = "to_name").}
 }
 \value{
 A tibble containing identified phylotypes and their mixture proportions.
