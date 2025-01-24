@@ -1,6 +1,8 @@
 
 # TBtypeR <img src="misc/TBtypeR_hex_logo.png" align="right" height="138"/>
 
+[![DOI](https://zenodo.org/badge/794900263.svg)](https://doi.org/10.5281/zenodo.14715907)
+
 `TBtypeR` is an R package for accurate and sensitive quantification of
 mixtures of *M. tuberculosis* (MTB) strains from whole genome sequencing
 data. `TBtypeR` excels as detecting low-frequency mixed infections that
