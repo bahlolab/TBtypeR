@@ -103,29 +103,34 @@ fig_S2_panel_B
 ```
 
 ```{r fig.height=7, fig.width=8}
-nomar <- theme(
-  plot.margin = margin(t=0,b=0,r=3,l=0),
-  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
-)
 
-cowplot::plot_grid(
-  fig_S2_panel_A + ggtitle('A.') + nomar,
-  fig_S2_panel_B,
-  ncol = 1,
-  rel_heights = c(5,13),
-  align = 'v',
-  axis = 'l'
-)
+thm <- 
+  theme(
+    text = element_text(size = 8, family = 'sans'),
+    plot.margin = margin(t=4, b=0, r=3, l=2),
+    plot.title = element_text(margin = margin(t=0, b=0, r=0, l=0), face = 'bold')
+  )
 
-cowplot::plot_grid(
-  fig_S2_panel_A + ggtitle('A.') + nomar,
-  ps[[1]] + x_blank + nomar + ggtitle('B.'),
-  ps[[2]] + x_blank + nomar, 
-  ps[[3]] + nomar,
+
+plot <-
+  cowplot::plot_grid(
+  fig_S2_panel_A + ggtitle('A.') + thm,
+  ps[[1]] + x_blank + thm + ggtitle('B.'),
+  ps[[2]] + x_blank + thm, 
+  ps[[3]] + thm,
   ncol = 1,
   rel_heights = c(8, 6.25, 5.8, 7),
   align = 'v',
   axis = 'l'
+)
+
+
+ggsave(
+  filename = '09_data/figure_2.pdf', 
+  plot = plot, 
+  width = 16, 
+  height = 14, 
+  units = 'cm'
 )
 ```
 

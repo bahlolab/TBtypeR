@@ -164,9 +164,10 @@ panel_C <-
   geom_col() +
   facet_wrap(~label, nrow = 1) +
   coord_flip() +
-  theme(axis.text.x = element_blank(),
-        axis.title.x = element_blank(), 
-        axis.ticks.x = element_blank(),
+  theme(
+    # axis.text.x = element_blank(),
+        # axis.title.x = element_blank(), 
+        # axis.ticks.x = element_blank(),
         legend.justification = 'top', 
         legend.margin = margin(-23,0,0,0),
         # legend.position = c(1, 1)
@@ -180,22 +181,38 @@ panel_C
 
 
 ```{r fig1, fig.height=5.5, fig.width=8}
-nomar <- theme(
-  plot.margin = margin(t=0,b=0,r=0,l=0),
-  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
+thm <- 
+  theme(
+    text = element_text(size = 8, family = 'sans'),
+    plot.margin = margin(t=4, b=0, r=0, l=2),
+    plot.title = element_text(margin = margin(t=0, b=0, r=0, l=0), face = 'bold')
+  )
+  
+
+plot <- 
+  suppressWarnings(
+    cowplot::plot_grid(
+      panel_A + ggtitle('A.') + thm,
+      panel_B + ggtitle('B.') + thm,
+      panel_C + ggtitle('C.') + thm ,
+      # ggplot() + theme_void(),
+      ncol = 1,
+      rel_heights = c(10,11,8),
+      align = 'v',
+      axis = 'lr'
+    )
+  )
+
+plot
+
+ggsave(
+  filename = '08_data/figure_1.pdf', 
+  plot = plot, 
+  width = 16, 
+  height = 11, 
+  units = 'cm'
 )
 
-suppressWarnings(
-  cowplot::plot_grid(
-    panel_A + ggtitle('A.') + nomar,
-    panel_B   + ggtitle('B.') + nomar,
-    panel_C   + ggtitle('C.') + nomar ,
-    ncol = 1,
-    rel_heights = c(10,10,7),
-    align = 'v',
-    axis = 'lr'
-  )
-)
 ```
 
 
