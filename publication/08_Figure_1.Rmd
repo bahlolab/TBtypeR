@@ -8,13 +8,9 @@ library(tidyverse)
 
 if (!dir.exists('08_data')) { dir.create('08_data') }
 
-bimix_tbl <- readRDS('03_data/bimix_tbl.rds')
-
 is_duo_by_depth <- readRDS('03_data/is_duo_by_depth.rds') 
 is_duo_by_mp <- readRDS('03_data/is_duo_by_mp.rds')
 is_duo_by_dist <- readRDS('03_data/is_duo_by_dist.rds')
-
-is_trio_accuracy <- readRDS('03_data/is_trio_accuracy.rds')
 
 table_1 <- readRDS('07_data/table_1.rds')
 
@@ -23,178 +19,82 @@ method_order <-
   pull(method) %>% 
   discard(str_detect, '\\(') %>% 
   discard(str_detect, 'FastTB')
-
-method_mae_label <-
-  table_1 %>% 
-  select(method, MAE = MAE_is_duo) %>% 
-  mutate(MAE = str_extract(MAE, '[0-9\\.]+') %>%
-           as.numeric()) %>% 
-  filter(method %in% method_order) %>% 
-  mutate(label = as_factor(str_c(method, '\nMAE=', format(MAE))))
 ```
 
-```{r panel_A}
-panel_A <-
+
+```{r fig_1,  fig.height=5.5, fig.width=8}
+measures <- 
+  c(`MCC`='MCC', 
+    # `F1-score`='f1_score',
+    `Sensitivity (Recall)`='recall', 
+    Precision='precision', 
+    Specificity = 'specificity'
+  )
+
+fig_1 <-
   bind_rows(
-  is_duo_by_depth %>% 
-    filter(measure %in% c('MCC')) %>% 
-    mutate(x_name = 'Coverage') %>% 
-    rename(x_value = depth,
-           MCC = value),
-  is_duo_by_mp %>% 
-    filter(measure %in% c('MCC')) %>% 
-    mutate(x_name = 'Minor Strain Fraction (%)') %>% 
-    rename(x_value = minor_percent,
-           MCC = value),
-  is_duo_by_dist %>% 
-    filter(measure %in% c('MCC')) %>% 
-    mutate(x_name = 'SNP Distance Bin') %>% 
-    rename(x_value = dist_bin,
-           MCC = value)) %>% 
+    is_duo_by_depth %>% 
+      filter(measure %in% measures) %>% 
+      mutate(x_name = 'Coverage') %>% 
+      rename(x_value = depth,
+             y_value = value,
+             y_name = measure),
+    is_duo_by_mp %>% 
+      filter(measure %in% measures) %>% 
+      mutate(x_name = 'Minor Strain Fraction (%)') %>% 
+      rename(x_value = minor_percent,
+             y_value = value,
+             y_name = measure),
+    is_duo_by_dist %>% 
+      filter(measure %in% measures) %>% 
+      mutate(x_name = 'Distance Bin') %>% 
+      rename(x_value = dist_bin,
+             y_value = value,
+             y_name = measure)) %>% 
   filter(method %in% method_order) %>%
-  mutate(method = factor(method, method_order)) %>% 
-  select(method, x_name, x_value, MCC) %>% 
+  mutate(
+    method = factor(method, method_order),
+    y_name = setNames(names(measures), measures)[y_name],
+    y_name = factor(y_name, names(measures)),
+    x_name = factor(x_name, c('Coverage', 'Minor Strain Fraction (%)', 'Distance Bin')),
+  ) %>% 
+  rename(Tool = method) %>% 
+  select(Tool, x_name, x_value, y_name, y_value) %>% 
   ggplot(aes(
     x = x_value, 
-    y = MCC,
-    colour = method,
-    shape = method)) +
+    y = y_value,
+    colour = Tool,
+    shape = Tool)) +
   geom_line(alpha = 1) +
   geom_point() +
   facet_grid(
-    cols = vars(x_name),
+    rows = vars(y_name), cols = vars(x_name),
     scales = 'free',
     switch = 'both') +
-  guides(color = guide_legend(title = 'Tool'),
-         shape = guide_legend(title = 'Tool')) +
-  theme(axis.title.x = element_blank()) + 
-  scale_y_continuous(breaks = seq(0, 1, by=0.2)) +
+  theme(axis.title = element_blank()) +
+  # ylim(0,1) +
   ggh4x::facetted_pos_scales(
     x = list(NULL,
              scale_x_continuous(trans = 'log2',
                                 breaks = c(1, 2.5, 5, 10, 25, 50),
                                 minor_breaks = NULL), 
-             NULL))
-# saveRDS(panel_A$data, '08_data/fig_1A_data.rds')
-panel_A
-```
-
-```{r panel_B}
-breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
-
-mae_smry <- 
-  bimix_tbl %>% 
-  filter(method %in% method_order) %>% 
-  filter(is_mixed) %>% 
-  filter(minor_percent_pred > 0) %>% 
-  group_by(method, minor_percent) %>% 
-  summarise(MAE = median(abs(minor_percent_pred - minor_percent)) %>% round(2),
-            Status = case_when(
-              MAE < 2 ~ 'MAE < 2%',
-              MAE < 5 ~ 'MAE < 5%',
-              TRUE    ~ 'MAE ≥ 5%') %>% 
-              ordered(c('MAE < 2%', 'MAE < 5%', 'MAE ≥ 5%'))) %>% 
-  select(-MAE) %>% 
-  ungroup()
-
-panel_B <-
-  bimix_tbl %>% 
-  filter(method %in% method_order) %>% 
-  filter(is_mixed) %>% 
-  filter(minor_percent_pred > 0) %>% 
-  left_join(mae_smry, by = join_by(method, minor_percent)) %>% 
-  mutate(method = factor(method, method_order)) %>%
-  select(method, Status, id, minor_percent, minor_percent_pred) %>% 
-  arrange(method, id) %>% 
-  ggplot(aes(
-    x=minor_percent, 
-    y=minor_percent_pred, 
-    group = minor_percent,
-    col = Status
-  )) +
-  geom_abline(col = 'red') +
-  geom_boxplot(
-    fill = NA,
-    outlier.alpha = 0.5,
-    size = 0.5,
-    outlier.size = 1
-  ) +
-  scale_x_continuous(
-    trans = 'log2',
-    breaks = breaks,
-    minor_breaks = NULL) +
-  scale_y_continuous(
-    trans = 'log2',
-    breaks = breaks,
-    minor_breaks = NULL) +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
-  coord_fixed() +
-  facet_wrap(~method, nrow = 1) +
-  labs(x = 'Minor Strain Fraction (%)',
-       y = 'Predicted Fraction (%)') +
-  scale_color_viridis_d(begin = 0, end = 0.7, direction = -1)
-
-# saveRDS(panel_B$data, '08_data/fig_1B_data.rds')
-panel_B
-
-ggsave(plot = panel_B + theme(text = element_text(size=10), legend.position = 'bottom'),
-       filename = '08_data/fig1B.png', 
-       width = 7, height = 2.5)
-```
-
-```{r panel_C}
-panel_C <-
-  is_trio_accuracy %>% 
-  filter(method %in% method_order) %>% 
-  mutate(method = factor(method, method_order)) %>% 
-  arrange(method) %>% 
-  mutate(label = str_c(method, '\naccuracy=', format(round(accuracy, 2)))) %>% 
-  mutate(label = as_factor(label)) %>% 
-  group_by(label, mix_n, mix_n_pred) %>% 
-  count() %>% 
-  group_by(label, mix_n) %>% 
-  mutate(percent = 100 * n / sum(n)) %>% 
-  ungroup() %>% 
-  select(label, mix_n, mix_n_pred, percent) %>% 
-  mutate(mix_n_pred = factor(mix_n_pred, 3:1)) %>% 
-  ggplot(aes(
-    x = mix_n,
-    y = percent,
-    fill = mix_n_pred)) +
-  geom_col() +
-  facet_wrap(~label, nrow = 1) +
-  coord_flip() +
-  theme(axis.text.x = element_blank(),
-        axis.title.x = element_blank(), 
-        axis.ticks.x = element_blank(),
-        legend.justification = 'top', 
-        legend.margin = margin(-23,0,0,0),
-        # legend.position = c(1, 1)
-        )  +
-  guides(fill = guide_legend(title = 'No. Strains\nPredicted', ncol = 1)) +
-  scale_fill_viridis_d(direction = -1) +
-  labs(x = 'No. Strains\nSimulated', y = 'Percent')
-# saveRDS(panel_C$data, '08_data/fig_1C_data.rds')
-panel_C
-```
-
-
-```{r fig1, fig.height=5.5, fig.width=8}
-nomar <- theme(
-  plot.margin = margin(t=0,b=0,r=0,l=0),
-  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
-)
-
-suppressWarnings(
-  cowplot::plot_grid(
-    panel_A + ggtitle('A.') + nomar,
-    panel_B   + ggtitle('B.') + nomar,
-    panel_C   + ggtitle('C.') + nomar ,
-    ncol = 1,
-    rel_heights = c(10,10,7),
-    align = 'v',
-    axis = 'lr'
+             NULL)) +
+  theme(
+    text = element_text(size = 8, family = 'sans'),
+    plot.margin = margin(t=4, b=0, r=0, l=2),
+    plot.title = element_text(margin = margin(t=0, b=0, r=0, l=0), face = 'bold')
   )
+
+fig_1
+  
+saveRDS(fig_1$data, '08_data/fig_1_data.rds')
+
+ggsave(
+  filename = '08_data/figure_1.pdf', 
+  plot = fig_1, 
+  width = 16, 
+  height = 11, 
+  units = 'cm'
 )
 ```
 

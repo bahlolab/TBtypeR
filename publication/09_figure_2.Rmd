@@ -1,5 +1,5 @@
 ---
-title: "Fig S1"
+title: "Fig 2"
 output: 'github_document'
 ---
 
@@ -7,7 +7,7 @@ output: 'github_document'
 ```{r setup, message=FALSE, warning=FALSE}
 library(tidyverse)
 
-if (!dir.exists('12_data')) { dir.create('12_data') }
+if (!dir.exists('09_data')) { dir.create('09_data') }
 
 is_duo_by_depth_and_mp <- readRDS('03_data/is_duo_by_depth_and_mp.rds')
 
@@ -21,7 +21,7 @@ method_order <-
 ```
 
 ```{r fig_s2,  fig.height=5.5, fig.width=8}
-fig_s2 <- 
+fig_2 <- 
   is_duo_by_depth_and_mp %>% 
   filter(method %in% method_order) %>%
   mutate(
@@ -36,16 +36,32 @@ fig_s2 <-
   filter(measure == 'MCC') %>% 
   filter(!str_detect(method, '\\(')) %>% 
   filter(!str_detect(method, 'FastT')) %>% 
-  ggplot(aes(minor_percent, value, colour = method, shape=method)) +
+  rename(Tool = method) %>% 
+  ggplot(aes(minor_percent, value, colour = Tool, shape = Tool)) +
   geom_line() + 
-  geom_point(aes(shape = method)) +
+  geom_point(aes(shape = Tool)) +
   facet_wrap(~depth,  scales='free_y') +
   scale_x_continuous(minor_breaks = NULL) +
   scale_y_continuous(minor_breaks = NULL) +
   scale_x_continuous(trans = 'log2', breaks = c(1, 2.5, 5, 10, 25, 50), minor_breaks = NULL) +
   ylab('MCC') +
-  xlab('Minor Strain Fraction (%)')
+  xlab('Minor Strain Fraction (%)') +
+  theme(
+    text = element_text(size = 8, family = 'sans'),
+    plot.margin = margin(t=4, b=0, r=0, l=2),
+    plot.title = element_text(margin = margin(t=0, b=0, r=0, l=0), face = 'bold')
+  )
 
-saveRDS(fig_s2$data, '12_data/fig_S2_data.rds')
-fig_s2
+
+saveRDS(fig_2$data, '09_data/fig_2_data.rds')
+
+ggsave(
+  filename = '09_data/figure_2.pdf', 
+  plot = fig_2, 
+  width = 16, 
+  height = 8, 
+  units = 'cm'
+)
+
+fig_2
 ```
