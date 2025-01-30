@@ -1,0 +1,164 @@
+---
+title: "Fig 3"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+if (!dir.exists('10_data')) { dir.create('10_data') }
+
+bimix_tbl <- readRDS('03_data/bimix_tbl.rds')
+
+is_trio_accuracy <- readRDS('03_data/is_trio_accuracy.rds')
+
+table_1 <- readRDS('07_data/table_1.rds')
+
+method_order <- 
+  table_1 %>%
+  pull(method) %>% 
+  discard(str_detect, '\\(') %>% 
+  discard(str_detect, 'FastTB')
+
+method_mae_label <-
+  table_1 %>% 
+  select(method, MAE = MAE_is_duo) %>% 
+  mutate(MAE = str_extract(MAE, '[0-9\\.]+') %>%
+           as.numeric()) %>% 
+  filter(method %in% method_order) %>% 
+  mutate(label = as_factor(str_c(method, '\nMAE=', format(MAE))))
+```
+
+
+```{r fig_3A}
+breaks <- unique(bimix_tbl$minor_percent) %>% na.omit()
+
+mae_smry <- 
+  bimix_tbl %>% 
+  filter(method %in% method_order) %>% 
+  filter(is_mixed) %>% 
+  filter(minor_percent_pred > 0) %>% 
+  group_by(method, minor_percent) %>% 
+  summarise(MAE = median(abs(minor_percent_pred - minor_percent)) %>% round(2),
+            Status = case_when(
+              MAE < 2 ~ 'MAE < 2%',
+              MAE < 5 ~ 'MAE < 5%',
+              TRUE    ~ 'MAE ≥ 5%') %>% 
+              ordered(c('MAE < 2%', 'MAE < 5%', 'MAE ≥ 5%'))) %>% 
+  select(-MAE) %>% 
+  ungroup()
+
+fig_3_A <-
+  bimix_tbl %>% 
+  filter(method %in% method_order) %>% 
+  filter(is_mixed) %>% 
+  filter(minor_percent_pred > 0) %>% 
+  left_join(mae_smry, by = join_by(method, minor_percent)) %>% 
+  mutate(method = factor(method, method_order)) %>%
+  select(method, Status, id, minor_percent, minor_percent_pred) %>% 
+  arrange(method, id) %>% 
+  ggplot(aes(
+    x=minor_percent, 
+    y=minor_percent_pred, 
+    group = minor_percent,
+    col = Status
+  )) +
+  geom_abline(col = 'red') +
+  geom_boxplot(
+    fill = NA,
+    outlier.alpha = 0.5,
+    size = 0.5,
+    outlier.size = 1
+  ) +
+  scale_x_continuous(
+    trans = 'log2',
+    breaks = breaks,
+    minor_breaks = NULL) +
+  scale_y_continuous(
+    trans = 'log2',
+    breaks = breaks,
+    minor_breaks = NULL) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust = 0.5)) +
+  coord_fixed() +
+  facet_wrap(~method, nrow = 1) +
+  labs(x = 'Minor Strain Fraction (%)',
+       y = 'Predicted Fraction (%)') +
+  scale_color_viridis_d(begin = 0, end = 0.7, direction = -1)
+
+saveRDS(fig_3_A$data, '10_data/fig_3A_data.rds')
+```
+
+```{r fig_3B}
+fig_3_B <-
+  is_trio_accuracy %>% 
+  filter(method %in% method_order) %>% 
+  mutate(method = factor(method, method_order)) %>% 
+  arrange(method) %>% 
+  mutate(label = str_c(method, '\naccuracy=', format(round(accuracy, 2)))) %>% 
+  mutate(label = as_factor(label)) %>% 
+  group_by(label, mix_n, mix_n_pred) %>% 
+  count() %>% 
+  group_by(label, mix_n) %>% 
+  mutate(percent = 100 * n / sum(n)) %>% 
+  ungroup() %>% 
+  select(label, mix_n, mix_n_pred, percent) %>% 
+  mutate(mix_n_pred = factor(mix_n_pred, 3:1)) %>% 
+  ggplot(aes(
+    x = mix_n,
+    y = percent,
+    fill = mix_n_pred)) +
+  geom_col() +
+  facet_wrap(~label, nrow = 1) +
+  coord_flip() +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        legend.justification = 'top', 
+        legend.margin = margin(-23,0,0,0),
+        # legend.position = c(1, 1)
+        )  +
+  guides(fill = guide_legend(title = 'No. Strains\nPredicted', ncol = 1)) +
+  scale_fill_viridis_d(direction = -1) +
+  labs(x = 'No. Strains\nSimulated', y = 'Percent')
+
+fig_3_B$data %>% 
+  separate(label, c('Tool', 'accuracy'), sep = '\naccuracy=') %>% 
+  saveRDS('10_data/fig_3B_data.rds')
+
+```
+
+
+```{r fig1, fig.height=5.5, fig.width=8}
+
+thm <- 
+  theme(
+    text = element_text(size = 8, family = 'sans'),
+    plot.margin = margin(t=0, b=0, r=0, l=5),
+    plot.title = element_text(margin = margin(t=0, b=0, r=0, l=0), face = 'bold')
+  )
+
+
+fig_3 <-
+  cowplot::plot_grid(
+  fig_3_A + thm + ggtitle('A.'),
+  fig_3_B + thm + ggtitle('B.'),
+  ncol = 1,
+  # rel_heights = c(8, 6.25, 5.8, 7),
+  align = 'v',
+  axis = 'lr',
+  rel_heights = c(10, 8)
+)
+
+fig_3
+
+ggsave(
+  filename = '10_data/figure_3.pdf', 
+  plot = fig_3, 
+  width = 16, 
+  height = 8, 
+  units = 'cm'
+)
+
+```
+
+

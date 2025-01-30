@@ -1,0 +1,52 @@
+---
+title: "Supp Data"
+output: 'github_document'
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+if (!dir.exists('12_data')) { dir.create('12_data') }
+
+fig_1_data <- readRDS('08_data/fig_1_data.rds')
+
+fig_2_data <- readRDS('09_data/fig_2_data.rds')
+
+fig_3A_data <- readRDS('10_data/fig_3A_data.rds')
+fig_3B_data <- readRDS('10_data/fig_3B_data.rds')
+
+fig_4A_data <- readRDS('11_data/fig_4A_data.rds')
+fig_4B_data <- readRDS('11_data/fig_4B_data.rds')
+
+```
+
+```{r table_s1}
+table_s1 <- 
+  readRDS('05_data/table_s1.rds') %>% 
+  rename(Accession = accession)
+```
+
+```{r table_s2}
+table_s2 <- 
+  readRDS('06_data/res_wang_subset_raw.rds') %>% 
+  select(-method) %>% 
+  rename(Accession = sample, Sublineage = strain, Proportion = proportion)
+```
+
+```{r}
+writexl::write_xlsx(
+  list(
+    `Table S1` = table_s1,
+    `Table S2` = table_s2,
+    `Figure 1 Data`  = fig_1_data,
+    `Figure 2 Data`  = fig_2_data,
+    `Figure 3A Data` = fig_3A_data,
+    
+    `Figure 3B Data` = fig_3B_data,
+    `Figure 4A Data` = fig_4A_data,
+    `Figure 4B Data` = fig_4B_data
+    ),
+  '12_data/TBtypeR_supplementary_data.xlsx'
+)
+```
+

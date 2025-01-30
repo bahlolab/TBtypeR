@@ -7,7 +7,7 @@ output: 'github_document'
 ```{r setup}
 library(tidyverse)
 
-if (!dir.exists('09_data')) { dir.create('09_data') }
+if (!dir.exists('11_data')) { dir.create('11_data') }
 
 wang_panel_A_dat <- readRDS('06_data/wang_panel_A_dat.rds')
 wang_panel_B_dat <- readRDS('06_data/wang_panel_B_dat.rds')
@@ -18,7 +18,7 @@ wang_panel_B_dat <- readRDS('06_data/wang_panel_B_dat.rds')
 
 tool_med <- wang_panel_A_dat %>% group_by(Tool) %>% summarise(MSF = median(MSF))
 
-fig_S2_panel_A <-
+fig_4_A <-
   wang_panel_A_dat %>% 
   select(Sample=sample, Tool, MSF) %>% 
   ggplot(aes(MSF, fill = Tool)) +
@@ -31,8 +31,8 @@ fig_S2_panel_A <-
   xlim(0, 50)  +
   labs(y = 'Mixed Infection Count', x = 'Minor Strain Fraction (%)')
 
-# saveRDS(fig_S2_panel_A$data, '09_data/fig_2A_data.rds')
-fig_S2_panel_A
+# saveRDS(fig_4_A$data, '11_data/fig_4A_data.rds')
+fig_4_A
 ```
 
 ```{r}
@@ -84,22 +84,25 @@ ps <-
 
 x_blank <- theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank())
 
-nomar <- theme(
-  plot.margin = margin(t=0,b=0,r=3,l=0),
-  plot.title = element_text(margin = margin(t=0,b=0,r=0,l=0))
-)
-
-fig_S2_panel_B <-
+fig_4_B <-
   cowplot::plot_grid(
-    ps[[1]] + x_blank + nomar + ggtitle('B.'),
-    ps[[2]] + x_blank + nomar, 
-    ps[[3]] + nomar,
+    ps[[1]] + x_blank + ggtitle('B.'),
+    ps[[2]] + x_blank, 
+    ps[[3]],
     ncol = 1,
     align = 'v',
     rel_heights = c(4,4,5)
   )
 
-fig_S2_panel_B
+map_df(ps, 'data') %>% 
+  # compress by storing counts rather than thousands of BAF=0 observations
+  count(sample, set, state, exp_baf, baf, name='Freq') %>% 
+  separate(sample, c('Accession', 'Strain_1', 'Strain_2'), sep = '\n') %>% 
+  separate(set, c('Tool', 'Group'), sep = '\n') %>% 
+  rename(`Expected BAF` = exp_baf, `Observed BAF` = baf, Genotype = state) %>% 
+  saveRDS('11_data/fig_4B_data.rds')
+
+fig_4_B
 ```
 
 ```{r fig.height=7, fig.width=8}
@@ -111,10 +114,9 @@ thm <-
     plot.title = element_text(margin = margin(t=0, b=0, r=0, l=0), face = 'bold')
   )
 
-
-plot <-
+fig_4 <-
   cowplot::plot_grid(
-  fig_S2_panel_A + ggtitle('A.') + thm,
+  fig_4_A + ggtitle('A.') + thm,
   ps[[1]] + x_blank + thm + ggtitle('B.'),
   ps[[2]] + x_blank + thm, 
   ps[[3]] + thm,
@@ -126,8 +128,8 @@ plot <-
 
 
 ggsave(
-  filename = '09_data/figure_2.pdf', 
-  plot = plot, 
+  filename = '11_data/figure_4.pdf', 
+  plot = fig_4, 
   width = 16, 
   height = 14, 
   units = 'cm'
