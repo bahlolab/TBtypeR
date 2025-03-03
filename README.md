@@ -159,9 +159,6 @@ available in the package documentation by running `help(tbtype)` or
 
 ## Citation
 
-TBtypeR is published as a preprint on MedRxiv:
+TBtypeR is published in Communications Biology:
 
-- [Munro, J. E., Coussens, A. K., & Bahlo, M. (2024). TBtypeR: Sensitive
-  detection and sublineage classification of low-frequency Mycobacterium
-  tuberculosis complex mixed infections. *medRxiv*,
-  2024-06](https://doi.org/10.1101/2024.06.12.24308870)
+- [Munro, J. E., Coussens, A. K., & Bahlo, M. (2025). TBtypeR: Sensitive detection and sublineage classification of Mycobacterium tuberculosis complex mixed-strain infections. *Communications Biology*, 8(1), 260.](https://doi.org/10.1038/s42003-025-07705-9)
