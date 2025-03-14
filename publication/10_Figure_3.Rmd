@@ -86,6 +86,8 @@ fig_3_A <-
   scale_color_viridis_d(begin = 0, end = 0.7, direction = -1)
 
 saveRDS(fig_3_A$data, '10_data/fig_3A_data.rds')
+
+ggsave('10_data/fig_3_A.png', fig_3_A, width = 8, height = 2)
 ```
 
 ```{r fig_3B}
